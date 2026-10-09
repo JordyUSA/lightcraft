@@ -334,9 +334,16 @@ pub(crate) fn finish_deep(
     let mut fp = FinishParams::new(s, frame, info, w, h, p.px_per_long, p.air, space);
     fp.proof = proof.map(|pr| pr.params(space));
     let trc = fp.out_trc;
+    let hdr_out = depth == OutputDepth::F32Hdr && fp.peak > 1.0;
     let samples = match depth {
-        OutputDepth::F32Linear => {
-            // (HDR edits export their SDR view until HDR export exists, matching the preview)
+        OutputDepth::F32Hdr if hdr_out => {
+            // the HDR values themselves (display linear, 1 = SDR white)
+            let peak = fp.peak;
+            let v = finish_with(p, &fp, true, |e, over| hdr_linear(e, over).map(|v| if v.is_nan() { 0.0 } else { v.clamp(0.0, peak) }));
+            DeepSamples::F32(v.into_flattened())
+        }
+        OutputDepth::F32Linear | OutputDepth::F32Hdr => {
+            // (HDR edits in SDR formats: their SDR view, matching the preview)
             let hdr = fp.peak > 1.0;
             let v = finish_with(p, &fp, true, |e, over| {
                 let e = if hdr { sdr_encoded(hdr_linear(e, over)) } else { e };
@@ -361,7 +368,7 @@ pub(crate) fn finish_deep(
             DeepSamples::U16(v.into_flattened())
         }
     };
-    DeepImage { width: w, height: h, space, samples }
+    DeepImage { width: w, height: h, space, samples, hdr: hdr_out }
 }
 
 /// The per-pixel stage: every output pixel's colour in the output primaries, encoded with the sRGB

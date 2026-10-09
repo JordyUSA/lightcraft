@@ -37,9 +37,9 @@ and prints the summary; `cargo xtask parity --write` refreshes the summary table
 | N. Copy / paste / sync (SYNC) | 5 | 0 | 0 | 0 | 3/3 (100%) | 1/1 (100%) |
 | O. Merge (MERGE) | 4 | 0 | 0 | 0 | — | — |
 | P. Enhance (ENH) | 0 | 0 | 2 | 0 | — | — |
-| Q. HDR (HDR) | 0 | 1 | 4 | 0 | — | — |
+| Q. HDR (HDR) | 0 | 2 | 3 | 0 | — | — |
 | R. Video (VID) | 0 | 0 | 5 | 1 | — | 0/2 (0%) |
-| S. Export (EXP) | 15 | 1 | 2 | 0 | 7/7 (100%) | 7/7 (100%) |
+| S. Export (EXP) | 15 | 2 | 1 | 0 | 7/7 (100%) | 7/7 (100%) |
 | T. Share (SHARE) | 0 | 0 | 0 | 4 | — | — |
 | U. Map & location (MAP) | 0 | 1 | 1 | 0 | — | 0/1 (0%) |
 | V. Preferences (PREF) | 6 | 1 | 2 | 2 | 1/1 (100%) | 4/4 (100%) |
@@ -48,9 +48,9 @@ and prints the summary; `cargo xtask parity --write` refreshes the summary table
 | Y. Menus | 82 | 0 | 4 | 8 | 47/47 (100%) | 23/23 (100%) |
 | Z. Keyboard shortcuts (desktop) | 75 | 3 | 3 | 1 | 49/52 (94%) | 23/24 (96%) |
 | Lightroom Classic extras | 32 | 11 | 39 | 9 | — | 22/24 (92%) |
-| **Total** | 394 | 40 | 82 | 36 | 193/200 (97%) | 142/152 (93%) |
+| **Total** | 394 | 42 | 80 | 36 | 193/200 (97%) | 142/152 (93%) |
 
-Weighted completion (✅ = 1, 🟡 = ½, 🚫 left out): **80.2%** of 516 in-scope rows — P0 98.2% of 200 · P1 95.7% of 152 · P2 43.6% of 163.
+Weighted completion (✅ = 1, 🟡 = ½, 🚫 left out): **80.4%** of 516 in-scope rows — P0 98.2% of 200 · P1 95.7% of 152 · P2 44.2% of 163.
 <!-- /parity:summary -->
 
 ## Top gaps
@@ -81,7 +81,7 @@ Take the first one nobody is working on.
    the app offers a consented, verified download, but **LightCraft's CDN mirrors are not configured yet** (the
    built-in list is empty, so today users need their own mirror or a manual install). Subject / Sky / People could
    use the same model with fixed prompts; denoise / super-resolution models remain a maintainer decision.
-7. **HDR** (Q. HDR, LR-EXP-HDR; HDR editing mode landed, CPU only: next SDR preview, visualize, display, export), **video** (R. Video), **Classic output modules** (Map view, Book, Slideshow module,
+7. **HDR** (Q. HDR, LR-EXP-HDR; HDR editing mode and HDR export (gain map JPEG, PQ AVIF/PNG, float TIFF) landed, CPU only: next SDR preview, visualize, display), **video** (R. Video), **Classic output modules** (Map view, Book, Slideshow module,
    Print, publish): large, well understood, lower priority than 1–5.
 8. **LR-VIEW-ZOOM** (P0): pinch zoom and two-finger pan now work, with stable image cursors between gesture events.
    The whole-image preview is still capped by
@@ -426,7 +426,7 @@ under the UI command that wraps it (a no-op error); the UI command now wins.
 | LR-HDR-SDRPREVIEW | SDR preview of HDR | P2 | ⬜ | | |
 | LR-HDR-VISUALIZE | Visualize HDR range | P2 | ⬜ | | |
 | LR-HDR-LIMIT | HDR headroom limit | P2 | ⬜ | | |
-| LR-HDR-EXPORT | HDR export | P2 | ⬜ | | |
+| LR-HDR-EXPORT | HDR export | P2 | 🟡 | `cmd:app.export` (`hdr`), `crates/codecs/src/hdr.rs`, `crates/engine/src/export.rs` | HDR Output for photos edited in HDR: JPEG with a gain map (Ultra HDR layout: SDR base + half-resolution gain map, `hdrgm` XMP, MPF; no ISO 21496-1 binary metadata yet), 10-bit PQ AVIF and 16-bit PQ PNG (`cICP`/`colr` + content light level; Rec.2020 or P3), 32-bit float linear TIFF; no JPEG XL (no encoder), no HLG, no headroom limit or Maximize Compatibility choice for AVIF; not checked on HDR displays yet |
 
 ## R. Video (VID)
 
@@ -450,7 +450,7 @@ under the UI command that wraps it (a no-op error); the UI command now wins.
 | LR-EXP-BITDEPTH | Bit depth | P1 | ✅ | `cmd:app.export` (`bitDepth`), `crates/pipeline/src/output.rs` (`OutputDepth`), `crates/engine/src/export.rs` | 16-bit PNG/TIFF rendered at 16 bits (TIFF defaults to 16), 32-bit float linear TIFF with a linear profile, 10-bit AVIF; high-bit-depth renders run on the CPU |
 | LR-EXP-COMPRESSION | TIFF compression | P1 | ✅ | `cmd:app.export` (`tiffCompression`: none / lzw / zip) | |
 | LR-EXP-COLORSPACE | Output colour space | P0 | ✅ | `cmd:app.export` (`colorSpace`), `crates/pipeline/src/output.rs`, `crates/engine/src/export.rs` | sRGB, Display P3, Adobe RGB (1998) compatible, ProPhoto RGB, Rec. 2020: rendered from the working space with gamut mapping into the target gamut (CPU + GPU), own ICC profile embedded; AVIF stays sRGB (muxer has no ICC) |
-| LR-EXP-HDR | HDR output | P2 | ⬜ | | |
+| LR-EXP-HDR | HDR output | P2 | 🟡 | `cmd:app.export` (`hdr`), `crates/codecs/src/hdr.rs`, `crates/engine/src/export.rs` | HDR Output for photos edited in HDR: JPEG with a gain map (Ultra HDR layout: SDR base + half-resolution gain map, `hdrgm` XMP, MPF; no ISO 21496-1 binary metadata yet), 10-bit PQ AVIF and 16-bit PQ PNG (`cICP`/`colr` + content light level; Rec.2020 or P3), 32-bit float linear TIFF; no JPEG XL (no encoder), no HLG, no headroom limit or Maximize Compatibility choice for AVIF; not checked on HDR displays yet |
 | LR-EXP-SHARPEN | Output sharpening | P1 | ✅ | `cmd:app.export` (`sharpen`, `sharpenAmount`) | |
 | LR-EXP-METADATA | Metadata policy | P1 | ✅ | `cmd:app.export` (`metadata`, `removeLocation`) | |
 | LR-EXP-WATERMARK | Watermark | P1 | ✅ | `cmd:app.export` (`watermark`: text, or `{text, vertical, size, opacity, anchor, inset, color, shadow, image, imageWidth}`), `crates/engine/src/export.rs` (`Watermark`, `WATERMARK_PARAMS`) | text (`size` = height as a fraction of the short edge, 0.005..0.5, default 0.035; `color` sRGB `[r,g,b]`; `shadow`; Japanese vertical glyph forms and origins, tested by `biz_ud_vertical_watermarks_place_punctuation_at_the_top_right`; extended grapheme cells keep decomposed dakuten/handakuten and Latin accents together, tested by `vertical_watermarks_keep_combining_marks_in_one_cell` and `upright_watermark_cell_retains_multiple_glyphs` (see `docs/vertical-watermarks.md`)) or a graphic with transparency (`image` path, `imageWidth` = fraction of the photo's width, 0.01..1, converted to the output colour space); `anchor`, `inset` (fraction of the short edge, 0..0.4), `opacity` 0..1. Unknown keys and out-of-range values are errors (issue #183) |

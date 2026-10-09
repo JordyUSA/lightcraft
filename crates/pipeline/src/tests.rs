@@ -478,3 +478,30 @@ fn hdr_edit_of_a_rendered_source_survives_extreme_settings() {
         }
     }
 }
+
+#[test]
+fn f32_hdr_renders_keep_hdr_values_only_for_hdr_edits() {
+    let src = Rgb32f::from_fn(128, 8, |x, _| [0.001 * 1.09f32.powi(x as i32); 3]);
+    let info = SourceInfo { raw: true, ..SourceInfo::default() };
+    let req = RenderRequest { depth: crate::OutputDepth::F32Hdr, ..RenderRequest::fit(128, 8) };
+    let floats = |r: &crate::Rendered| match &r.deep.as_ref().unwrap().samples {
+        crate::DeepSamples::F32(v) => v.clone(),
+        _ => panic!("float samples"),
+    };
+    // an SDR edit: exactly the linear float render
+    let sdr = render(&src, &info, &DevelopSettings::default(), &req);
+    assert!(!sdr.deep.as_ref().unwrap().hdr);
+    let lin = render(&src, &info, &DevelopSettings::default(), &RenderRequest { depth: crate::OutputDepth::F32Linear, ..req });
+    assert_eq!(floats(&sdr), floats(&lin));
+    // an HDR edit: values above SDR white, bounded by the peak; the 8-bit image is the SDR view
+    let mut s = DevelopSettings::default();
+    s.light.hdr = true;
+    let hdr = render(&src, &info, &s, &req);
+    assert!(hdr.deep.as_ref().unwrap().hdr);
+    let v = floats(&hdr);
+    let top = v.iter().copied().fold(0.0f32, f32::max);
+    assert!(top > 2.0 && top <= crate::hdr::HDR_PEAK, "{top}");
+    let preview = render(&src, &info, &s, &RenderRequest::fit(128, 8));
+    let (a, b) = (hdr.image.get(120, 4), preview.image.get(120, 4));
+    assert!((a[1] as i32 - b[1] as i32).abs() <= 1, "{a:?} vs {b:?}");
+}
