@@ -253,4 +253,21 @@ mod tests {
         assert_eq!(s.light.hdr_max, 4.0);
         assert!(DevelopSettings::default().is_unedited());
     }
+
+    #[test]
+    fn hdr_defaults_keep_the_settings_hash() {
+        // HDR off and the whole headroom aren't serialized: settings saved before HDR editing keep
+        // their hash, so cached previews and thumbnails stay valid (0x12a7… is the default
+        // settings' hash before HDR; change it only to invalidate every cache on purpose)
+        let light = serde_json::to_string(&DevelopSettings::default().light).unwrap();
+        assert_eq!(light, r#"{"exposure":0.0,"contrast":0.0,"highlights":0.0,"shadows":0.0,"whites":0.0,"blacks":0.0}"#);
+        assert_eq!(DevelopSettings::default().hash64(), 0x12a7_19f1_bc91_81a3);
+        // non-defaults are written and read back
+        let mut s = DevelopSettings::default();
+        s.light.hdr = true;
+        s.light.hdr_max = 2.5;
+        let back: DevelopSettings = serde_json::from_str(&serde_json::to_string(&s).unwrap()).unwrap();
+        assert!(back.light.hdr && back.light.hdr_max == 2.5);
+        assert_ne!(s.hash64(), DevelopSettings::default().hash64());
+    }
 }

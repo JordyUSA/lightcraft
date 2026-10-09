@@ -179,15 +179,30 @@ pub struct Light {
     pub blacks: f64,
     /// HDR editing: tones may extend above SDR white (up to the pipeline's HDR headroom) instead
     /// of rolling off at it. Lightroom's Light panel "HDR" button (`crs:HDREditMode`).
+    /// (Defaults aren't serialized: settings saved before HDR keep their hash, so their cached
+    /// previews and thumbnails stay valid.)
+    #[serde(skip_serializing_if = "is_false")]
     pub hdr: bool,
     /// HDR headroom limit: how many stops above SDR white an HDR edit may reach (1..4; the
     /// tone map aims its white point at this peak, so highlights are compressed below it).
+    #[serde(skip_serializing_if = "is_default_hdr_max")]
     pub hdr_max: f64,
+}
+
+/// The whole HDR headroom, [`Light::hdr_max`]'s default.
+const DEFAULT_HDR_MAX: f64 = 4.0;
+
+fn is_false(v: &bool) -> bool {
+    !*v
+}
+
+fn is_default_hdr_max(v: &f64) -> bool {
+    *v == DEFAULT_HDR_MAX
 }
 
 impl Default for Light {
     fn default() -> Self {
-        Self { exposure: 0.0, contrast: 0.0, highlights: 0.0, shadows: 0.0, whites: 0.0, blacks: 0.0, hdr: false, hdr_max: 4.0 }
+        Self { exposure: 0.0, contrast: 0.0, highlights: 0.0, shadows: 0.0, whites: 0.0, blacks: 0.0, hdr: false, hdr_max: DEFAULT_HDR_MAX }
     }
 }
 
