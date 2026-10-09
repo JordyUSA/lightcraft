@@ -5,8 +5,9 @@
 //!   the AV1 bitstream and the `colr` box, plus content light levels (`clli`).
 //! - **PNG**: 16-bit PQ with a `cICP` chunk (PNG third edition) and `cLLI`.
 //! - **JPEG with a gain map** (the Ultra HDR layout: an SDR JPEG every viewer shows, plus a
-//!   greyscale gain map JPEG and `hdrgm` XMP metadata, linked by a Multi-Picture Format index):
-//!   HDR displays apply the gain map, everyone else sees the SDR base.
+//!   greyscale gain map JPEG, linked by a Multi-Picture Format index): HDR displays apply the gain
+//!   map, everyone else sees the SDR base. The gain map is described twice, as `hdrgm` XMP and as
+//!   ISO 21496-1 binary metadata (APP2), so readers of either find it.
 //!
 //! SDR white sits at 203 cd/m² in PQ (ITU-R BT.2408's HDR reference white).
 
@@ -300,12 +301,49 @@ pub fn encode_jpeg_gainmap(hdr: &HdrImage, g: &GainMapInput, meta: &EncodeMeta) 
     let gm_xmp = gain_map_xmp(&params);
     let gm_meta = EncodeMeta { xmp: Some(&gm_xmp), ..Default::default() };
     let gain_jpeg = encode_jpeg(&EncodeImage::new(gw as u32, gh as u32, 1, Samples::U8(&map)), g.quality, ChromaSubsampling::S444, &gm_meta)?;
+    let gain_jpeg = with_segment(&gain_jpeg, 0xE2, &iso_metadata(&params))?;
 
     let base_xmp = primary_xmp(meta.xmp, gain_jpeg.len());
     let base_meta = EncodeMeta { xmp: Some(&base_xmp), ..*meta };
     let base = encode_jpeg(&EncodeImage::new(hdr.width, hdr.height, 3, Samples::U8(g.sdr)), g.quality, ChromaSubsampling::S444, &base_meta)?;
+    let base = with_segment(&base, 0xE2, &iso_version())?;
     let base = with_mpf(&base, gain_jpeg.len())?;
     Ok([base, gain_jpeg].concat())
+}
+
+/// The ISO 21496-1 APP2 identifier.
+const ISO_URN: &[u8] = b"urn:iso:std:iso:ts:21496:-1\0";
+
+/// Denominator of the ISO 21496-1 fractions we write.
+const ISO_DENOM: u32 = 1_000_000;
+
+/// The primary image's ISO 21496-1 segment: the identifier and the versions (minimum version
+/// a reader needs, writer version: both 0), announcing a gain map.
+fn iso_version() -> Vec<u8> {
+    [ISO_URN, &0u16.to_be_bytes(), &0u16.to_be_bytes()].concat()
+}
+
+/// The gain map image's ISO 21496-1 metadata (big-endian): versions, flags (one channel, the
+/// base image's colour space), then each value as its own numerator / denominator pair (the
+/// spec's optional common-denominator form is not read by every decoder: Skia, so Chromium,
+/// reads only this one): the base and alternate HDR headroom (log2; the base is SDR), then the
+/// channel's gain map min and max (log2), gamma and the base / alternate offsets — what `hdrgm`
+/// says in XMP.
+fn iso_metadata(p: &GainMapParams) -> Vec<u8> {
+    const USE_BASE_COLOUR_SPACE: u8 = 1 << 6;
+    let num = |v: f32| (f64::from(v) * f64::from(ISO_DENOM)).round().clamp(f64::from(i32::MIN), f64::from(i32::MAX)) as i32;
+    let signed = |v: f32| [num(v).to_be_bytes(), ISO_DENOM.to_be_bytes()].concat();
+    let positive = |v: f32| [(num(v.max(0.0)).max(0) as u32).to_be_bytes(), ISO_DENOM.to_be_bytes()].concat();
+    let mut out = iso_version();
+    out.push(USE_BASE_COLOUR_SPACE);
+    out.extend(positive(0.0)); // base HDR headroom: an SDR base
+    out.extend(positive(p.max_log2)); // alternate (HDR) headroom
+    out.extend(signed(p.min_log2));
+    out.extend(signed(p.max_log2));
+    out.extend(positive(1.0)); // gamma
+    out.extend(signed(p.offset));
+    out.extend(signed(p.offset));
+    out
 }
 
 /// The gain map image's XMP: its `hdrgm` parameters.
@@ -333,13 +371,11 @@ fn primary_xmp(existing: Option<&str>, gain_len: usize) -> String {
     }
 }
 
-/// `jpeg` with a Multi-Picture Format index (APP2 `MPF`) inserted after its leading APPn
-/// segments: two images, this one (primary) and a `second_len`-byte one appended right after it.
-fn with_mpf(jpeg: &[u8], second_len: usize) -> Result<Vec<u8>> {
+/// Where new APPn segments go in `jpeg`: after SOI and the APPn segments the encoder wrote.
+fn after_app_segments(jpeg: &[u8]) -> Result<usize> {
     if jpeg.get(..2) != Some(&[0xFF, 0xD8]) {
         return Err(Error::Encode("not a JPEG".into()));
     }
-    // after SOI and the APPn segments the encoder wrote
     let mut at = 2usize;
     while let (Some(&0xFF), Some(&m)) = (jpeg.get(at), jpeg.get(at + 1)) {
         if !(0xE0..=0xEF).contains(&m) {
@@ -349,6 +385,20 @@ fn with_mpf(jpeg: &[u8], second_len: usize) -> Result<Vec<u8>> {
             jpeg.get(at + 2..at + 4).map(|b| u16::from_be_bytes([b[0], b[1]]) as usize).ok_or_else(|| Error::Encode("truncated JPEG".into()))?;
         at = at.checked_add(2 + len).filter(|e| *e <= jpeg.len()).ok_or_else(|| Error::Encode("truncated JPEG".into()))?;
     }
+    Ok(at)
+}
+
+/// `jpeg` with an APPn segment (`marker` 0xE0..=0xEF, payload `body`) after its APPn segments.
+fn with_segment(jpeg: &[u8], marker: u8, body: &[u8]) -> Result<Vec<u8>> {
+    let at = after_app_segments(jpeg)?;
+    let len = u16::try_from(body.len() + 2).map_err(|_| Error::Encode("APP segment too large".into()))?;
+    Ok([jpeg.get(..at).unwrap_or_default(), &[0xFF, marker], &len.to_be_bytes(), body, jpeg.get(at..).unwrap_or_default()].concat())
+}
+
+/// `jpeg` with a Multi-Picture Format index (APP2 `MPF`) inserted after its leading APPn
+/// segments: two images, this one (primary) and a `second_len`-byte one appended right after it.
+fn with_mpf(jpeg: &[u8], second_len: usize) -> Result<Vec<u8>> {
+    let at = after_app_segments(jpeg)?;
     // APP2: "MPF\0", big-endian TIFF header, one IFD (version, count, entries), two 16-byte entries
     let mut body: Vec<u8> = Vec::with_capacity(86);
     body.extend_from_slice(b"MPF\0");
@@ -476,6 +526,31 @@ mod tests {
         let max: f32 = gm.split(r#"hdrgm:GainMapMax=""#).nth(1).unwrap().split('"').next().unwrap().parse().unwrap();
         let brightest = rgb[(w as usize - 1) * 3..(w as usize) * 3].iter().map(|v| v * 0.3).sum::<f32>();
         assert!(max > 1.0 && max < (brightest / 0.3 * 2.0).log2() + 1.0, "{max}");
+        // ISO 21496-1: the primary announces it (versions only), the gain map carries the metadata
+        let urn = |b: &[u8]| b.windows(ISO_URN.len()).position(|w| w == ISO_URN);
+        let p = urn(&bytes[..base_len]).expect("ISO 21496-1 in the primary");
+        assert_eq!(&bytes[p + ISO_URN.len()..p + ISO_URN.len() + 4], &[0, 0, 0, 0], "versions 0 / 0");
+        let seg_len = u16::from_be_bytes([bytes[p - 2], bytes[p - 1]]) as usize;
+        assert_eq!(seg_len, 2 + ISO_URN.len() + 4, "versions only");
+        let g0 = base_len + urn(&bytes[base_len..]).expect("ISO 21496-1 in the gain map") + ISO_URN.len();
+        // read back as Skia (Chromium) does: every value a numerator / denominator pair
+        let m = &bytes[g0..];
+        let be32 = |o: usize| u32::from_be_bytes([m[o], m[o + 1], m[o + 2], m[o + 3]]);
+        let frac = |o: usize, signed: bool| {
+            let d = be32(o + 4);
+            assert_ne!(d, 0, "denominators are non-zero");
+            (if signed { be32(o) as i32 as f64 } else { be32(o) as f64 } / d as f64) as f32
+        };
+        assert_eq!(&m[..4], &[0, 0, 0, 0]);
+        assert_eq!(m[4], 0x40, "one channel, base colour space");
+        assert_eq!(frac(5, false), 0.0, "SDR base");
+        let alt = frac(13, false);
+        let (gmin, gmax) = (frac(21, true), frac(29, true));
+        assert!((alt - max).abs() < 1e-4 && (gmax - max).abs() < 1e-4 && gmin <= 0.0, "{alt} {gmin} {gmax} vs {max}");
+        assert_eq!(frac(37, false), 1.0, "gamma");
+        assert!((frac(45, true) - GAIN_OFFSET).abs() < 1e-5 && (frac(53, true) - GAIN_OFFSET).abs() < 1e-5);
+        let seg = u16::from_be_bytes([bytes[g0 - ISO_URN.len() - 2], bytes[g0 - ISO_URN.len() - 1]]) as usize;
+        assert_eq!(seg, 2 + ISO_URN.len() + 5 + 7 * 8, "nothing after the last value");
         // both images decode; applying the gain map to the base restores the HDR brightness
         let dec = |b: &[u8]| {
             let mut d = jpeg_decoder::Decoder::new(std::io::Cursor::new(b));
