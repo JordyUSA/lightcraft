@@ -297,12 +297,10 @@ pub(crate) fn finish(
     let bins = lightcraft_raster::HdrBins { from: lightcraft_raster::Histogram::HDR_FROM, stops: crate::hdr::HDR_STOPS };
     let both = finish_with(p, &fp, false, |e, over| {
         let lin = hdr_linear(e, over);
-        // Visualize HDR range: sRGB colours, whatever the output space
-        let px = if visualize_hdr {
-            let v = crate::hdr::visualize(lin).map(enc);
-            [v[0], v[1], v[2], 255]
-        } else {
-            store8(sdr_encoded(lin))
+        // Visualize HDR range: tones above SDR white in its (sRGB) colours, the rest as usual
+        let px = match crate::hdr::visualize(lin).filter(|_| visualize_hdr) {
+            Some(v) => [enc(v[0]), enc(v[1]), enc(v[2]), 255],
+            None => store8(sdr_encoded(lin)),
         };
         let y = fp.out_luma[0] * lin[0] + fp.out_luma[1] * lin[1] + fp.out_luma[2] * lin[2];
         (px, [bins.bin(lin[0]), bins.bin(lin[1]), bins.bin(lin[2]), bins.bin(y)].map(|b| b as u8))

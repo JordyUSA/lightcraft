@@ -10,7 +10,7 @@
 //!   tint on a black-and-white image, the image on black / white, or the alpha as white on black
 //!   ([`MaskView`]). Both renderers hand the same alpha plane (the one the render used) to [`apply`].
 //! - **Visualize HDR range** (HDR edits): tones above SDR white coloured by how many stops above
-//!   it they are ([`crate::hdr::visualize`]), SDR tones dimmed grey. It needs the HDR values, so the
+//!   it they are ([`crate::hdr::visualize`]); SDR tones keep their colours. It needs the HDR values, so the
 //!   per-pixel stage draws it (CPU; HDR edits don't render on the GPU); [`apply`] has nothing to do.
 
 use std::borrow::Cow;

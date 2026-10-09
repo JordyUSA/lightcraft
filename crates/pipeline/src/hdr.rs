@@ -33,16 +33,11 @@ pub fn range_color(stops: f32) -> [f32; 3] {
     RANGE_COLORS.get(band).copied().unwrap_or(RANGE_COLORS[0]).map(|c| c as f32 / 255.0)
 }
 
-/// Visualize HDR range of one display-linear colour (1 = SDR white): tones above SDR white in
-/// their [`range_color`], SDR tones as a dimmed grey of their SDR view (sRGB-encoded 0..1).
-pub fn visualize(c: [f32; 3]) -> [f32; 3] {
+/// Visualize HDR range of one display-linear colour (1 = SDR white): a tone above SDR white
+/// gets its [`range_color`] (sRGB-encoded 0..1); an SDR tone `None` (it keeps its own colour).
+pub fn visualize(c: [f32; 3]) -> Option<[f32; 3]> {
     let m = c.iter().copied().filter(|v| v.is_finite()).fold(0.0f32, f32::max);
-    if m > 1.0 {
-        return range_color(m.log2());
-    }
-    let s = to_sdr(c);
-    let y = 0.2126 * s[0] + 0.7152 * s[1] + 0.0722 * s[2];
-    [lightcraft_color::transfer::linear_to_srgb(y.clamp(0.0, 1.0)) * 0.55; 3]
+    (m > 1.0).then(|| range_color(m.log2()))
 }
 
 /// Fraction of `peak` below which [`soft_peak`] is the identity.
@@ -122,15 +117,16 @@ mod tests {
     }
 
     #[test]
-    fn visualize_colours_hdr_tones_by_stops_and_greys_sdr_ones() {
-        let g = visualize([0.5, 0.5, 0.5]);
-        assert!(g[0] == g[1] && g[1] == g[2] && g[0] < 0.6, "SDR: dim grey {g:?}");
-        let band = |i: usize| RANGE_COLORS[i].map(|c| c as f32 / 255.0);
+    fn visualize_colours_hdr_tones_by_stops_and_keeps_sdr_ones() {
+        assert_eq!(visualize([0.5, 0.2, 0.9]), None, "SDR tones keep their colour");
+        assert_eq!(visualize([1.0; 3]), None, "SDR white is SDR");
+        let band = |i: usize| Some(RANGE_COLORS[i].map(|c| c as f32 / 255.0));
         assert_eq!(visualize([1.2; 3]), band(0), "within a stop of white: the first band");
         assert_eq!(visualize([3.0; 3]), band(1));
         assert_eq!(visualize([7.0; 3]), band(2));
         assert_eq!(visualize([15.0; 3]), band(3), "near the peak: the last band");
-        assert_eq!(visualize([f32::NAN, 2.0, 0.0]), range_color(1.0));
+        assert_eq!(visualize([f32::NAN, 2.0, 0.0]), Some(range_color(1.0)));
+        assert_eq!(visualize([f32::NAN; 3]), None);
         assert_eq!(range_color(f32::NAN), range_color(0.0));
         assert_eq!(range_color(99.0), range_color(HDR_STOPS));
     }
