@@ -505,3 +505,40 @@ fn f32_hdr_renders_keep_hdr_values_only_for_hdr_edits() {
     let (a, b) = (hdr.image.get(120, 4), preview.image.get(120, 4));
     assert!((a[1] as i32 - b[1] as i32).abs() <= 1, "{a:?} vs {b:?}");
 }
+
+#[test]
+fn hdr_headroom_limit_caps_the_hdr_values() {
+    let src = Rgb32f::from_fn(128, 8, |x, _| [0.001 * 1.09f32.powi(x as i32); 3]);
+    let info = SourceInfo { raw: true, ..SourceInfo::default() };
+    let req = RenderRequest { depth: crate::OutputDepth::F32Hdr, ..RenderRequest::fit(128, 8) };
+    let top = |hdr_max: f64| {
+        let mut s = DevelopSettings::default();
+        (s.light.hdr, s.light.hdr_max) = (true, hdr_max);
+        match &render(&src, &info, &s, &req).deep.unwrap().samples {
+            crate::DeepSamples::F32(v) => v.iter().copied().fold(0.0f32, f32::max),
+            _ => panic!("float samples"),
+        }
+    };
+    let (two, four) = (top(2.0), top(4.0));
+    assert!(two > 2.0 && two <= 4.0 + 1e-4, "2 stops: {two}");
+    assert!(four > two, "{four} vs {two}");
+}
+
+#[test]
+fn visualize_hdr_range_colours_only_hdr_tones() {
+    let src = Rgb32f::from_fn(128, 8, |x, _| [0.001 * 1.09f32.powi(x as i32); 3]);
+    let info = SourceInfo { raw: true, ..SourceInfo::default() };
+    let viz = RenderRequest { overlay: crate::Overlay::HdrRange, ..RenderRequest::fit(128, 8) };
+    let mut s = DevelopSettings::default();
+    s.light.hdr = true;
+    let r = render(&src, &info, &s, &viz);
+    let (dark, bright) = (r.image.get(10, 4), r.image.get(125, 4));
+    assert!(dark[0] == dark[1] && dark[1] == dark[2], "SDR tones grey: {dark:?}");
+    assert!(bright[0].abs_diff(bright[2]) > 60, "HDR tones coloured: {bright:?}");
+    // the histogram still describes the photo, not the overlay
+    assert_eq!(r.histogram, render(&src, &info, &s, &RenderRequest::fit(128, 8)).histogram);
+    // an SDR edit has no HDR range: the overlay changes nothing
+    let plain = DevelopSettings::default();
+    assert_eq!(render(&src, &info, &plain, &viz).image.data, render(&src, &info, &plain, &RenderRequest::fit(128, 8)).image.data);
+    assert_eq!(crate::Overlay::from_parts(crate::Overlay::HdrRange.to_parts().0, 0.0), crate::Overlay::HdrRange);
+}

@@ -276,6 +276,7 @@ pub(crate) fn finish(
     info: &SourceInfo,
     space: OutputSpace,
     proof: Option<crate::Proof>,
+    visualize_hdr: bool,
 ) -> (Rgba8, Option<lightcraft_raster::Histogram>) {
     let (w, h) = (p.img.width, p.img.height);
     let mut fp = FinishParams::new(s, frame, info, w, h, p.px_per_long, p.air, space);
@@ -296,7 +297,13 @@ pub(crate) fn finish(
     let bins = lightcraft_raster::HdrBins { from: lightcraft_raster::Histogram::BINS * 2 / 3, stops: crate::hdr::HDR_STOPS };
     let both = finish_with(p, &fp, false, |e, over| {
         let lin = hdr_linear(e, over);
-        let px = store8(sdr_encoded(lin));
+        // Visualize HDR range: sRGB colours, whatever the output space
+        let px = if visualize_hdr {
+            let v = crate::hdr::visualize(lin).map(enc);
+            [v[0], v[1], v[2], 255]
+        } else {
+            store8(sdr_encoded(lin))
+        };
         let y = fp.out_luma[0] * lin[0] + fp.out_luma[1] * lin[1] + fp.out_luma[2] * lin[2];
         (px, [bins.bin(lin[0]), bins.bin(lin[1]), bins.bin(lin[2]), bins.bin(y)].map(|b| b as u8))
     });

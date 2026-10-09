@@ -37,7 +37,7 @@ and prints the summary; `cargo xtask parity --write` refreshes the summary table
 | N. Copy / paste / sync (SYNC) | 5 | 0 | 0 | 0 | 3/3 (100%) | 1/1 (100%) |
 | O. Merge (MERGE) | 4 | 0 | 0 | 0 | — | — |
 | P. Enhance (ENH) | 0 | 0 | 2 | 0 | — | — |
-| Q. HDR (HDR) | 0 | 2 | 3 | 0 | — | — |
+| Q. HDR (HDR) | 1 | 3 | 1 | 0 | — | — |
 | R. Video (VID) | 0 | 0 | 5 | 1 | — | 0/2 (0%) |
 | S. Export (EXP) | 15 | 2 | 1 | 0 | 7/7 (100%) | 7/7 (100%) |
 | T. Share (SHARE) | 0 | 0 | 0 | 4 | — | — |
@@ -48,9 +48,9 @@ and prints the summary; `cargo xtask parity --write` refreshes the summary table
 | Y. Menus | 82 | 0 | 4 | 8 | 47/47 (100%) | 23/23 (100%) |
 | Z. Keyboard shortcuts (desktop) | 75 | 3 | 3 | 1 | 49/52 (94%) | 23/24 (96%) |
 | Lightroom Classic extras | 32 | 11 | 39 | 9 | — | 22/24 (92%) |
-| **Total** | 394 | 42 | 80 | 36 | 193/200 (97%) | 142/152 (93%) |
+| **Total** | 395 | 43 | 78 | 36 | 193/200 (97%) | 142/152 (93%) |
 
-Weighted completion (✅ = 1, 🟡 = ½, 🚫 left out): **80.4%** of 516 in-scope rows — P0 98.2% of 200 · P1 95.7% of 152 · P2 44.2% of 163.
+Weighted completion (✅ = 1, 🟡 = ½, 🚫 left out): **80.7%** of 516 in-scope rows — P0 98.2% of 200 · P1 95.7% of 152 · P2 45.1% of 163.
 <!-- /parity:summary -->
 
 ## Top gaps
@@ -81,7 +81,7 @@ Take the first one nobody is working on.
    the app offers a consented, verified download, but **LightCraft's CDN mirrors are not configured yet** (the
    built-in list is empty, so today users need their own mirror or a manual install). Subject / Sky / People could
    use the same model with fixed prompts; denoise / super-resolution models remain a maintainer decision.
-7. **HDR** (Q. HDR, LR-EXP-HDR; HDR editing mode and HDR export (gain map JPEG, PQ AVIF/PNG, float TIFF) landed, CPU only: next SDR preview, visualize, display), **video** (R. Video), **Classic output modules** (Map view, Book, Slideshow module,
+7. **HDR** (Q. HDR, LR-EXP-HDR; HDR editing mode, Visualize HDR range, headroom limit and HDR export (gain map JPEG, PQ AVIF/PNG, float TIFF) landed, CPU only: next SDR preview settings, GPU path, HDR display), **video** (R. Video), **Classic output modules** (Map view, Book, Slideshow module,
    Print, publish): large, well understood, lower priority than 1–5.
 8. **LR-VIEW-ZOOM** (P0): pinch zoom and two-finger pan now work, with stable image cursors between gesture events.
    The whole-image preview is still capped by
@@ -424,8 +424,8 @@ under the UI command that wraps it (a no-op error); the UI command now wins.
 |---|---|---|---|---|---|
 | LR-HDR-EDIT | HDR editing | P2 | 🟡 | `cmd:develop.hdr`, `crates/pipeline/src/hdr.rs` | +4 stops above SDR white through tone map, colour, gamut map and curves; HDR histogram (stops above SDR white shaded); XMP `crs:HDREditMode` import; CPU only (the GPU path declines HDR edits); seen on SDR through a fixed SDR view, which exports also use: no HDR display, SDR preview sliders, visualize or HDR export yet |
 | LR-HDR-SDRPREVIEW | SDR preview of HDR | P2 | ⬜ | | |
-| LR-HDR-VISUALIZE | Visualize HDR range | P2 | ⬜ | | |
-| LR-HDR-LIMIT | HDR headroom limit | P2 | ⬜ | | |
+| LR-HDR-VISUALIZE | Visualize HDR range | P2 | ✅ | `crates/pipeline/src/hdr.rs` (`visualize`), `crates/pipeline/src/visualize.rs` (`Overlay::HdrRange`), `crates/ui-egui/src/panels/edit.rs` | Light panel checkbox in HDR mode (`ui.set {hdrVisualize}`): tones above SDR white coloured by stops (our own blue → red ramp), SDR tones dimmed grey; the histogram's +1…+4 labels become its legend |
+| LR-HDR-LIMIT | HDR headroom limit | P2 | 🟡 | `ctl:light.hdrMax`, `crates/pipeline/src/hdr.rs` (`peak`) | per-photo HDR Headroom slider, 1–4 stops: the tone map aims at that peak and HDR exports never exceed it; marked on the histogram. Whether Lightroom's limit is per photo or a display/preview setting is unverified; no XMP mapping |
 | LR-HDR-EXPORT | HDR export | P2 | 🟡 | `cmd:app.export` (`hdr`), `crates/codecs/src/hdr.rs`, `crates/engine/src/export.rs` | HDR Output for photos edited in HDR: JPEG with a gain map (Ultra HDR layout: SDR base + half-resolution gain map, `hdrgm` XMP, MPF; no ISO 21496-1 binary metadata yet), 10-bit PQ AVIF and 16-bit PQ PNG (`cICP`/`colr` + content light level; Rec.2020 or P3), 32-bit float linear TIFF; no JPEG XL (no encoder), no HLG, no headroom limit or Maximize Compatibility choice for AVIF; not checked on HDR displays yet |
 
 ## R. Video (VID)

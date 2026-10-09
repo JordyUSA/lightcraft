@@ -165,6 +165,18 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
         for c in ["light.exposure", "light.contrast", "light.highlights", "light.shadows", "light.whites", "light.blacks"] {
             control(app, ui, d, c, true);
         }
+        if d.light.hdr {
+            // HDR edits: the headroom limit and Visualize HDR range
+            control(app, ui, d, "light.hdrMax", true);
+            egui::Frame::NONE.inner_margin(egui::Margin { left: 24, right: 22, top: 2, bottom: 2 }).show(ui, |ui| {
+                let mut v = app.ui.hdr_visualize;
+                let r = ui.checkbox(&mut v, crate::i18n::tr("Visualize HDR range"));
+                crate::widgets::register(ui.ctx(), "checkbox:hdrVisualize", r.rect);
+                if r.on_hover_text(crate::i18n::tr("Color tones above SDR white by how many stops brighter they are")).changed() {
+                    app.ui.hdr_visualize = v;
+                }
+            });
+        }
         ui.add_space(6.0);
         let open = app.ui.flyout_open("curve");
         if flyout_row(ui, "curve", crate::i18n::tr("Curve"), Icon::Curve, open).clicked() {
@@ -508,12 +520,26 @@ fn histogram(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
             p.line_segment([pos2(x0, plot.top()), pos2(x0, plot.bottom())], Stroke::new(1.0, Color32::from_gray(110)));
             let stops = b.stops.round().max(1.0) as usize;
             // (labels along the bottom: the clipping toggles sit in the top corners)
+            // (with Visualize HDR range on, the labels take its colours: a legend)
+            let legend = app.ui.hdr_visualize;
             for k in 1..=stops {
                 let x = x0 + (plot.right() - x0) * k as f32 / stops as f32;
                 if k < stops {
                     p.line_segment([pos2(x, plot.bottom() - 4.0), pos2(x, plot.bottom())], Stroke::new(1.0, Color32::from_gray(110)));
                 }
-                p.text(pos2(x - 3.0, plot.bottom() - 2.0), Align2::RIGHT_BOTTOM, format!("+{k}"), t.font(10.0), t.text_dim);
+                let col = if legend {
+                    let c = lightcraft_engine::pipeline::hdr::range_color(k as f32 - 0.5).map(|v| (v * 255.0).round() as u8);
+                    Color32::from_rgb(c[0], c[1], c[2])
+                } else {
+                    t.text_dim
+                };
+                p.text(pos2(x - 3.0, plot.bottom() - 2.0), Align2::RIGHT_BOTTOM, format!("+{k}"), t.font(10.0), col);
+            }
+            // the photo's headroom limit, when below the whole range
+            let limit = app.session.develop_of(id).map_or(b.stops, |d| d.light.hdr_max as f32);
+            if limit.is_finite() && limit < b.stops - 0.05 {
+                let x = x0 + (plot.right() - x0) * (limit / b.stops).clamp(0.0, 1.0);
+                p.line_segment([pos2(x, plot.top()), pos2(x, plot.bottom())], Stroke::new(1.0, Color32::from_rgb(230, 150, 60)));
             }
         }
         let chans = [(smooth(&h.r), hex("#df3939")), (smooth(&h.g), hex("#44b072")), (smooth(&h.b), hex("#3b6fe0"))];
