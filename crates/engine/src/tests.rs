@@ -974,3 +974,21 @@ fn undo_and_redo_show_the_photo_they_change() {
     s.execute("edit.undo", &json!({})).unwrap();
     assert_eq!(s.selection, before, "a step over several photos keeps the selection");
 }
+
+#[test]
+fn hdr_mode_toggles_and_renders_an_hdr_histogram() {
+    let mut s = demo();
+    let id = s.active().unwrap();
+    assert!(s.render_now(id, 160, 160).unwrap().histogram.hdr.is_none());
+    s.execute("develop.hdr", &json!({})).unwrap();
+    assert!(active_dev(&s).light.hdr);
+    assert!(!active_dev(&s).is_unedited());
+    let r = s.render_now(id, 160, 160).unwrap();
+    assert!(r.histogram.hdr.is_some());
+    s.execute("develop.hdr", &json!({"on": true})).unwrap();
+    assert!(active_dev(&s).light.hdr, "explicit on keeps it on");
+    s.execute("edit.undo", &json!({})).unwrap();
+    assert!(active_dev(&s).light.hdr, "undo of the no-op keeps HDR");
+    s.execute("develop.hdr", &json!({"on": false})).unwrap();
+    assert!(!active_dev(&s).light.hdr);
+}

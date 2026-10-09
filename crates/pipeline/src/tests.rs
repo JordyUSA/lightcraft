@@ -435,3 +435,46 @@ fn custom_white_balance_redevelops_in_camera_space() {
     s.wb.mode = WbMode::AsShot;
     assert!(wb_matrix_for(&info, &s).is_none());
 }
+
+#[test]
+fn hdr_edit_keeps_highlights_above_sdr_white() {
+    // a raw-like ramp from deep shadow to 6 stops above grey's white point
+    let src = Rgb32f::from_fn(128, 8, |x, _| [0.001 * 1.09f32.powi(x as i32); 3]);
+    let info = SourceInfo { raw: true, ..SourceInfo::default() };
+    let req = RenderRequest::fit(128, 8);
+    let sdr = render(&src, &info, &DevelopSettings::default(), &req);
+    assert!(sdr.histogram.hdr.is_none());
+    let mut s = DevelopSettings::default();
+    s.light.hdr = true;
+    let hdr = render(&src, &info, &s, &req);
+    let bins = hdr.histogram.hdr.expect("an HDR edit has an HDR histogram");
+    assert!(hdr.histogram.above_sdr() > 0.1, "{}", hdr.histogram.above_sdr());
+    assert!(hdr.histogram.luma[bins.from..].iter().any(|&n| n > 0));
+    // shadows render alike; the SDR view stays monotone along the ramp
+    assert!((sdr.image.get(4, 4)[1] as i32 - hdr.image.get(4, 4)[1] as i32).abs() <= 3);
+    let row: Vec<u8> = (0..128).map(|x| hdr.image.get(x, 4)[1]).collect();
+    assert!(row.windows(2).all(|w| w[1] as i32 + 1 >= w[0] as i32), "{row:?}");
+    // more exposure moves more of the image into the HDR range
+    s.light.exposure = 1.5;
+    let brighter = render(&src, &info, &s, &req);
+    assert!(brighter.histogram.above_sdr() > hdr.histogram.above_sdr());
+    // exports match the preview: the deep render is the same SDR view
+    let deep = render(&src, &info, &s, &RenderRequest { depth: crate::OutputDepth::U16, ..req });
+    let (a, b) = (deep.image.get(100, 4), brighter.image.get(100, 4));
+    assert!((a[1] as i32 - b[1] as i32).abs() <= 1, "{a:?} vs {b:?}");
+}
+
+#[test]
+fn hdr_edit_of_a_rendered_source_survives_extreme_settings() {
+    let src = scene();
+    let mut s = DevelopSettings::default();
+    s.light.hdr = true;
+    for c in controls::CONTROLS.iter().filter(|c| c.id.starts_with("light.") || c.id.starts_with("effects.") || c.id.starts_with("vignette.")) {
+        for v in [c.min, c.max] {
+            let mut s = s.clone();
+            controls::set(&mut s, c.id, v);
+            let r = render(&src, &SourceInfo::default(), &s, &RenderRequest::fit(64, 64));
+            assert!(r.histogram.hdr.is_some() && r.histogram.total > 0, "{}", c.id);
+        }
+    }
+}

@@ -177,6 +177,9 @@ pub struct Light {
     pub shadows: f64,
     pub whites: f64,
     pub blacks: f64,
+    /// HDR editing: tones may extend above SDR white (up to the pipeline's HDR headroom) instead
+    /// of rolling off at it. Lightroom's Light panel "HDR" button (`crs:HDREditMode`).
+    pub hdr: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

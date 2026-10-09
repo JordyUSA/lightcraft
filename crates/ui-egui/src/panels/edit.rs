@@ -105,6 +105,12 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
             if text_button(ui, "bw", crate::i18n::tr("B&W"), bw).clicked() {
                 let _ = app.run("develop.treatment", json!({}));
             }
+            if text_button(ui, "hdr", crate::i18n::tr("HDR"), d.light.hdr)
+                .on_hover_text(crate::i18n::tr("Edit in high dynamic range: highlights can rise above SDR white"))
+                .clicked()
+            {
+                let _ = app.run("develop.hdr", json!({}));
+            }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if text_button(ui, "reset", crate::i18n::tr("Reset"), false).on_hover_text(crate::i18n::tr("Reset all edits (Cmd+Shift+R)")).clicked()
                 {
@@ -495,6 +501,21 @@ fn histogram(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
                 })
                 .collect()
         };
+        // HDR histograms: shade the range above SDR white and mark its stops
+        if let Some(b) = h.hdr {
+            let x0 = plot.left() + plot.width() * b.from as f32 / 255.0;
+            p.rect_filled(Rect::from_min_max(pos2(x0, plot.top()), plot.max), 0.0, Color32::from_white_alpha(10));
+            p.line_segment([pos2(x0, plot.top()), pos2(x0, plot.bottom())], Stroke::new(1.0, Color32::from_gray(110)));
+            let stops = b.stops.round().max(1.0) as usize;
+            // (labels along the bottom: the clipping toggles sit in the top corners)
+            for k in 1..=stops {
+                let x = x0 + (plot.right() - x0) * k as f32 / stops as f32;
+                if k < stops {
+                    p.line_segment([pos2(x, plot.bottom() - 4.0), pos2(x, plot.bottom())], Stroke::new(1.0, Color32::from_gray(110)));
+                }
+                p.text(pos2(x - 3.0, plot.bottom() - 2.0), Align2::RIGHT_BOTTOM, format!("+{k}"), t.font(10.0), t.text_dim);
+            }
+        }
         let chans = [(smooth(&h.r), hex("#df3939")), (smooth(&h.g), hex("#44b072")), (smooth(&h.b), hex("#3b6fe0"))];
         let peak = chans.iter().flat_map(|(v, _)| v.iter().skip(2).take(252)).fold(1.0f32, |a, b| a.max(*b));
         let to = |i: usize, v: f32| pos2(plot.left() + plot.width() * i as f32 / 255.0, plot.bottom() - plot.height() * (v / peak).sqrt().min(1.0));
