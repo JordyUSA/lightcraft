@@ -542,8 +542,10 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
         };
         let image_rect = fit_texture_rect(r, tex.size);
         match (&app.hdr_presenter, &tex.hdr) {
-            // HDR display: the HDR values of an HDR edit
-            (Some(hp), Some(px)) => hp.paint(&p, image_rect, px),
+            // HDR display: the HDR values of an HDR edit. Only while the image lies inside the
+            // window: a paint callback's viewport is clamped to the window, so a zoomed image
+            // reaching past it would be squeezed into the visible part (the SDR view instead)
+            (Some(hp), Some(px)) if p.ctx().viewport_rect().expand(0.5).contains_rect(image_rect) => hp.paint(&p, image_rect, px),
             _ => {
                 p.image(tex.tex.id(), image_rect, Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)), Color32::WHITE);
             }
