@@ -992,3 +992,27 @@ fn hdr_mode_toggles_and_renders_an_hdr_histogram() {
     s.execute("develop.hdr", &json!({"on": false})).unwrap();
     assert!(!active_dev(&s).light.hdr);
 }
+
+#[test]
+fn hdr_display_jobs_render_hdr_values_for_hdr_edits_only() {
+    let mut s = demo();
+    let id = s.active().unwrap();
+    let plain = s.loupe_job(id, 160, 160, true).unwrap();
+    let key = plain.key;
+    let same = plain.with_hdr_display(true);
+    assert_eq!(same.key, key, "an SDR edit is left alone");
+    assert!(same.view_cache.is_some());
+    s.execute("develop.hdr", &json!({"on": true})).unwrap();
+    let job = s.loupe_job(id, 160, 160, true).unwrap().with_hdr_display(true);
+    assert!(job.view_cache.is_none() && job.cache.is_none(), "never the 8-bit preview caches");
+    let r = job.run().rendered.unwrap();
+    let deep = r.deep.expect("HDR values");
+    assert!(deep.hdr && r.histogram.hdr.is_some());
+    // an overlay draws on the 8-bit image: no HDR render then
+    let viz = s.loupe_job(id, 160, 160, true).unwrap().with_overlay(lightcraft_pipeline::Overlay::HdrRange).with_hdr_display(true);
+    assert_eq!(viz.request.depth, lightcraft_pipeline::OutputDepth::U8);
+    // off: unchanged
+    let off = s.loupe_job(id, 160, 160, true).unwrap();
+    let k = off.key;
+    assert_eq!(off.with_hdr_display(false).key, k);
+}

@@ -504,6 +504,9 @@ fn f32_hdr_renders_keep_hdr_values_only_for_hdr_edits() {
     let preview = render(&src, &info, &s, &RenderRequest::fit(128, 8));
     let (a, b) = (hdr.image.get(120, 4), preview.image.get(120, 4));
     assert!((a[1] as i32 - b[1] as i32).abs() <= 1, "{a:?} vs {b:?}");
+    // and its histogram is the HDR one, as the preview's
+    assert!(hdr.histogram.hdr.is_some() && hdr.histogram.above_sdr() > 0.0);
+    assert!((hdr.histogram.above_sdr() - preview.histogram.above_sdr()).abs() < 0.05);
 }
 
 #[test]

@@ -514,7 +514,11 @@ fn render_impl(src: Src<'_>, info: &SourceInfo, s: &DevelopSettings, req: &Rende
     if req.depth != OutputDepth::U8 {
         let deep = finish::finish_deep(&prep, s, frame, info, req.space, req.depth, req.proof);
         let image = deep.to_rgba8();
-        let histogram = Histogram::of_srgb8(&image);
+        // HDR renders (an HDR display's loupe): the histogram of the HDR values
+        let histogram = match &deep.samples {
+            DeepSamples::F32(v) if deep.hdr => Histogram::of_hdr(v.as_chunks::<3>().0, hdr::HDR_STOPS),
+            _ => Histogram::of_srgb8(&image),
+        };
         lap("finish (deep)", &mut t);
         return Rendered { image, histogram, deep: Some(deep) };
     }

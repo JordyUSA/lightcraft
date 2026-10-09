@@ -23,7 +23,7 @@ and prints the summary; `cargo xtask parity --write` refreshes the summary table
 |---|---:|---:|---:|---:|---:|---:|
 | A. Import (IMP) | 11 | 3 | 1 | 1 | 3/5 (60%) | 5/5 (100%) |
 | B. Library management (LIB) | 22 | 2 | 1 | 2 | 9/9 (100%) | 9/9 (100%) |
-| C. Views & navigation (VIEW) | 15 | 1 | 1 | 0 | 8/9 (89%) | 4/4 (100%) |
+| C. Views & navigation (VIEW) | 15 | 2 | 0 | 0 | 8/9 (89%) | 4/4 (100%) |
 | D. Search & filter (FILT) | 11 | 1 | 1 | 0 | 4/4 (100%) | 4/4 (100%) |
 | E. Metadata (META) | 5 | 1 | 0 | 0 | 2/2 (100%) | 2/2 (100%) |
 | F. Edit panel — global adjustments (EDIT) | 42 | 3 | 3 | 1 | 28/28 (100%) | 13/14 (93%) |
@@ -48,9 +48,9 @@ and prints the summary; `cargo xtask parity --write` refreshes the summary table
 | Y. Menus | 82 | 0 | 4 | 8 | 47/47 (100%) | 23/23 (100%) |
 | Z. Keyboard shortcuts (desktop) | 75 | 3 | 3 | 1 | 49/52 (94%) | 23/24 (96%) |
 | Lightroom Classic extras | 32 | 11 | 39 | 9 | — | 22/24 (92%) |
-| **Total** | 395 | 43 | 78 | 36 | 193/200 (97%) | 142/152 (93%) |
+| **Total** | 395 | 44 | 77 | 36 | 193/200 (97%) | 142/152 (93%) |
 
-Weighted completion (✅ = 1, 🟡 = ½, 🚫 left out): **80.7%** of 516 in-scope rows — P0 98.2% of 200 · P1 95.7% of 152 · P2 45.1% of 163.
+Weighted completion (✅ = 1, 🟡 = ½, 🚫 left out): **80.8%** of 516 in-scope rows — P0 98.2% of 200 · P1 95.7% of 152 · P2 45.4% of 163.
 <!-- /parity:summary -->
 
 ## Top gaps
@@ -200,7 +200,7 @@ under the UI command that wraps it (a no-op error); the UI command now wins.
 | LR-VIEW-SECONDWINDOW | Second display window [Classic] | P2 | ✅ | `cmd:view.secondWindow`, `crates/ui-egui/src/panels/second.rs` | Window ▸ Second Window (⌘F11): the active photo fitted in its own native window with its own render (a floating panel where there are no native windows); loupe view only (no grid / compare / survey there) |
 | LR-VIEW-CLIPPING | Clipping indicators | P0 | ✅ | `cmd:view.clipping` | |
 | LR-VIEW-HISTOGRAM | Histogram | P0 | ✅ | `cmd:view.histogram`, `crates/ui-egui/src/panels/edit.rs` | no drag-to-adjust on the histogram |
-| LR-VIEW-HDR-DISPLAY | HDR display output | P2 | ⬜ | | |
+| LR-VIEW-HDR-DISPLAY | HDR display output | P2 | 🟡 | `apps/lightcraft/src/hdr_present.rs`, `crates/ui-egui/src/hdr_view.rs`, `vendor/egui-wgpu` | on an HDR display the window asks for an scRGB surface (patched egui-wgpu) and an HDR edit's loupe is drawn with its HDR values (half-float texture, paint callback); Settings ▸ Performance toggle (restart), `LIGHTCRAFT_HDR_DISPLAY=0/1`, `ui.inspect` → `hdrDisplay`. Linux / Vulkan (KDE Plasma Wayland) only so far; macOS / Windows untested; whole-frame loupe only (no zoomed HDR windows, compare, second window); CPU renders |
 
 ## D. Search & filter (FILT)
 

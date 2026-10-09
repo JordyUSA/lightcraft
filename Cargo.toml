@@ -1,6 +1,8 @@
 [workspace]
 resolver = "3"
 members = ["crates/*", "apps/*", "xtask"]
+# upstream crates carried with a patch (see vendor/README.md): not workspace members
+exclude = ["vendor"]
 
 [workspace.package]
 version = "0.4.0"
@@ -150,3 +152,8 @@ jpeg-decoder = { opt-level = 3 }
 jpeg-encoder = { opt-level = 3 }
 png = { opt-level = 3 }
 miniz_oxide = { opt-level = 3 }
+
+# egui-wgpu with HDR window support (an Rgba16Float / scRGB surface when asked and offered);
+# see vendor/README.md
+[patch.crates-io]
+egui-wgpu = { path = "vendor/egui-wgpu" }
