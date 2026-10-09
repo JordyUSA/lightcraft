@@ -534,7 +534,8 @@ fn visualize_hdr_range_colours_only_hdr_tones() {
     let r = render(&src, &info, &s, &viz);
     let (dark, bright) = (r.image.get(10, 4), r.image.get(125, 4));
     assert!(dark[0] == dark[1] && dark[1] == dark[2], "SDR tones grey: {dark:?}");
-    assert!(bright[0].abs_diff(bright[2]) > 60, "HDR tones coloured: {bright:?}");
+    let spread = bright[..3].iter().max().unwrap() - bright[..3].iter().min().unwrap();
+    assert!(spread > 60, "HDR tones coloured: {bright:?}");
     // the histogram still describes the photo, not the overlay
     assert_eq!(r.histogram, render(&src, &info, &s, &RenderRequest::fit(128, 8)).histogram);
     // an SDR edit has no HDR range: the overlay changes nothing

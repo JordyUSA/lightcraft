@@ -294,7 +294,7 @@ pub(crate) fn finish(
         return (Rgba8 { width: w, height: h, data }, None);
     }
     // HDR: the SDR view goes into the image, the HDR value's histogram bins ride along
-    let bins = lightcraft_raster::HdrBins { from: lightcraft_raster::Histogram::BINS * 2 / 3, stops: crate::hdr::HDR_STOPS };
+    let bins = lightcraft_raster::HdrBins { from: lightcraft_raster::Histogram::HDR_FROM, stops: crate::hdr::HDR_STOPS };
     let both = finish_with(p, &fp, false, |e, over| {
         let lin = hdr_linear(e, over);
         // Visualize HDR range: sRGB colours, whatever the output space

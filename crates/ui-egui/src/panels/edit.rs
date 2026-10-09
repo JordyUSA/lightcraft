@@ -491,11 +491,6 @@ fn section(
 fn histogram(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
     let t = Tokens::get(ui.ctx());
     let w = ui.available_width();
-    let (r, resp) = ui.allocate_exact_size(vec2(w, 118.0), Sense::click());
-    register(ui.ctx(), "histogram", r);
-    let p = ui.painter();
-    p.rect_filled(r, 0.0, t.button);
-    let plot = Rect::from_min_max(r.min + vec2(0.0, 6.0), pos2(r.right(), r.bottom() - 26.0));
     // the loupe render of this photo, else its thumbnail (grid view before the loupe has rendered it)
     let hist = app
         .renderer
@@ -504,6 +499,33 @@ fn histogram(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
         .filter(|t| t.photo == id)
         .and_then(|t| t.histogram.clone())
         .or_else(|| app.renderer.textures.get(&Slot::Thumb(id)).and_then(|t| t.histogram.clone()));
+    // HDR histograms get a colour bar and an SDR / HDR label row under the plot
+    let hdr = hist.as_ref().and_then(|h| h.hdr);
+    let legend = if hdr.is_some() { 26.0 } else { 0.0 };
+    let (r, resp) = ui.allocate_exact_size(vec2(w, 118.0 + legend), Sense::click());
+    register(ui.ctx(), "histogram", r);
+    let p = ui.painter();
+    p.rect_filled(r, 0.0, t.button);
+    let plot = Rect::from_min_max(r.min + vec2(0.0, 6.0), pos2(r.right(), r.bottom() - 26.0 - legend));
+    if let Some(b) = hdr {
+        let x0 = plot.left() + plot.width() * b.from as f32 / 255.0;
+        let bar = |a: f32, z: f32, c: Color32| p.rect_filled(Rect::from_min_max(pos2(a, plot.bottom() + 2.0), pos2(z, plot.bottom() + 7.0)), 0.0, c);
+        bar(plot.left(), x0 - 1.0, Color32::from_rgb(228, 228, 230));
+        let colors = lightcraft_engine::pipeline::hdr::RANGE_COLORS;
+        let n = colors.len() as f32;
+        for (k, c) in colors.iter().enumerate() {
+            let (a, z) = (x0 + (plot.right() - x0) * k as f32 / n, x0 + (plot.right() - x0) * (k + 1) as f32 / n);
+            bar(a + 1.0, z - 1.0, Color32::from_rgb(c[0], c[1], c[2]));
+        }
+        let y = plot.bottom() + 18.0;
+        p.text(pos2((plot.left() + x0) / 2.0, y), Align2::CENTER_CENTER, crate::i18n::tr("SDR"), t.font(12.5), t.text_label);
+        p.text(pos2((x0 + plot.right()) / 2.0, y), Align2::CENTER_CENTER, crate::i18n::tr("HDR"), t.font(12.5), t.text_label);
+        let info = Rect::from_center_size(pos2(plot.right() - 16.0, y), vec2(14.0, 14.0));
+        paint(p, info, Icon::Info, t.text_label);
+        ui.interact(info, egui::Id::new("hdrHistogramInfo"), Sense::hover()).on_hover_text(crate::i18n::tr(
+            "Left: standard (SDR) range up to SDR white. Right: the HDR range, one band per stop above SDR white; the colours match Visualize HDR range.",
+        ));
+    }
     if let Some(h) = hist {
         let smooth = |v: &[u32]| -> Vec<f32> {
             (0..256)
@@ -513,28 +535,20 @@ fn histogram(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
                 })
                 .collect()
         };
-        // HDR histograms: shade the range above SDR white and mark its stops
+        // HDR histograms: SDR on the left half, a solid line at SDR white and dashed ones between
+        // the stops above it; the colour bar and the SDR / HDR labels are drawn below
         if let Some(b) = h.hdr {
             let x0 = plot.left() + plot.width() * b.from as f32 / 255.0;
-            p.rect_filled(Rect::from_min_max(pos2(x0, plot.top()), plot.max), 0.0, Color32::from_white_alpha(10));
-            p.line_segment([pos2(x0, plot.top()), pos2(x0, plot.bottom())], Stroke::new(1.0, Color32::from_gray(110)));
             let stops = b.stops.round().max(1.0) as usize;
-            // (labels along the bottom: the clipping toggles sit in the top corners)
-            // (with Visualize HDR range on, the labels take its colours: a legend)
-            let legend = app.ui.hdr_visualize;
-            for k in 1..=stops {
+            for k in 1..stops {
                 let x = x0 + (plot.right() - x0) * k as f32 / stops as f32;
-                if k < stops {
-                    p.line_segment([pos2(x, plot.bottom() - 4.0), pos2(x, plot.bottom())], Stroke::new(1.0, Color32::from_gray(110)));
+                let mut y = plot.top();
+                while y < plot.bottom() {
+                    p.line_segment([pos2(x, y), pos2(x, (y + 5.0).min(plot.bottom()))], Stroke::new(1.0, Color32::from_gray(150)));
+                    y += 9.0;
                 }
-                let col = if legend {
-                    let c = lightcraft_engine::pipeline::hdr::range_color(k as f32 - 0.5).map(|v| (v * 255.0).round() as u8);
-                    Color32::from_rgb(c[0], c[1], c[2])
-                } else {
-                    t.text_dim
-                };
-                p.text(pos2(x - 3.0, plot.bottom() - 2.0), Align2::RIGHT_BOTTOM, format!("+{k}"), t.font(10.0), col);
             }
+            p.line_segment([pos2(x0, plot.top()), pos2(x0, plot.bottom())], Stroke::new(1.5, Color32::from_gray(160)));
             // the photo's headroom limit, when below the whole range
             let limit = app.session.develop_of(id).map_or(b.stops, |d| d.light.hdr_max as f32);
             if limit.is_finite() && limit < b.stops - 0.05 {

@@ -47,6 +47,8 @@ impl HdrBins {
 
 impl Histogram {
     pub const BINS: usize = 256;
+    /// HDR histograms: the first bin above SDR white (SDR takes the left half).
+    pub const HDR_FROM: usize = Self::BINS / 2;
 
     fn empty(hdr: Option<HdrBins>) -> Histogram {
         Histogram { r: vec![0; 256], g: vec![0; 256], b: vec![0; 256], luma: vec![0; 256], total: 0, hdr }
@@ -55,8 +57,7 @@ impl Histogram {
     /// Histogram of linear RGB samples (1 = SDR white) reaching `stops` stops above SDR white.
     /// `samples` are visited at most ~1 MP of them (evenly strided).
     pub fn of_hdr(samples: &[[f32; 3]], stops: f32) -> Histogram {
-        // two thirds of the width for SDR, as the SDR histogram's shape matters most
-        let bins = HdrBins { from: Self::BINS * 2 / 3, stops };
+        let bins = HdrBins { from: Self::HDR_FROM, stops };
         let mut h = Self::empty(Some(bins));
         let step = (samples.len() / 1_000_000).max(1);
         for c in samples.iter().step_by(step) {

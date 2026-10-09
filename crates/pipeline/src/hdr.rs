@@ -22,14 +22,15 @@ pub fn peak(s: &lightcraft_develop::DevelopSettings) -> f32 {
     stops.exp2()
 }
 
-/// Visualize HDR range: the colour for a tone `stops` above SDR white (0..[`HDR_STOPS`]), blue
-/// just above white through cyan, green and yellow to red at the top (sRGB-encoded 0..1).
+/// Visualize HDR range colours, one per stop above SDR white (sRGB 8-bit): +1 cyan, +2 blue,
+/// +3 violet, +4 purple. The histogram's colour bar uses the same ones.
+pub const RANGE_COLORS: [[u8; 3]; 4] = [[135, 226, 240], [68, 85, 205], [76, 29, 195], [155, 45, 200]];
+
+/// The [`RANGE_COLORS`] band of a tone `stops` above SDR white (0..[`HDR_STOPS`]; outside: the
+/// nearest band), sRGB-encoded 0..1.
 pub fn range_color(stops: f32) -> [f32; 3] {
-    const RAMP: [[f32; 3]; 5] = [[0.15, 0.35, 1.0], [0.0, 0.85, 1.0], [0.2, 0.95, 0.25], [1.0, 0.9, 0.1], [1.0, 0.15, 0.1]];
-    let t = if stops.is_finite() { (stops / HDR_STOPS).clamp(0.0, 1.0) * (RAMP.len() - 1) as f32 } else { 0.0 };
-    let i = (t as usize).min(RAMP.len() - 2);
-    let f = t - i as f32;
-    std::array::from_fn(|k| RAMP[i][k] + (RAMP[i + 1][k] - RAMP[i][k]) * f)
+    let band = if stops.is_finite() { stops.ceil().clamp(1.0, RANGE_COLORS.len() as f32) as usize - 1 } else { 0 };
+    RANGE_COLORS.get(band).copied().unwrap_or(RANGE_COLORS[0]).map(|c| c as f32 / 255.0)
 }
 
 /// Visualize HDR range of one display-linear colour (1 = SDR white): tones above SDR white in
@@ -124,9 +125,11 @@ mod tests {
     fn visualize_colours_hdr_tones_by_stops_and_greys_sdr_ones() {
         let g = visualize([0.5, 0.5, 0.5]);
         assert!(g[0] == g[1] && g[1] == g[2] && g[0] < 0.6, "SDR: dim grey {g:?}");
-        let (lo, hi) = (visualize([1.2; 3]), visualize([15.0; 3]));
-        assert!(lo[2] > lo[0], "just above white: blue {lo:?}");
-        assert!(hi[0] > hi[2], "near the peak: red {hi:?}");
+        let band = |i: usize| RANGE_COLORS[i].map(|c| c as f32 / 255.0);
+        assert_eq!(visualize([1.2; 3]), band(0), "within a stop of white: the first band");
+        assert_eq!(visualize([3.0; 3]), band(1));
+        assert_eq!(visualize([7.0; 3]), band(2));
+        assert_eq!(visualize([15.0; 3]), band(3), "near the peak: the last band");
         assert_eq!(visualize([f32::NAN, 2.0, 0.0]), range_color(1.0));
         assert_eq!(range_color(f32::NAN), range_color(0.0));
         assert_eq!(range_color(99.0), range_color(HDR_STOPS));
