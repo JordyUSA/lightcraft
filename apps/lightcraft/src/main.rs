@@ -107,6 +107,20 @@ impl eframe::App for App {
 /// a second; anything slower gives way to quitting.
 const EXIT_WAIT: std::time::Duration = std::time::Duration::from_secs(2);
 
+/// Whether to run through XWayland on a Wayland desktop (`display`: X11 is there). XWayland gives
+/// file drag-and-drop from the file manager (winit has none on Wayland), but X11 windows get no HDR
+/// surface: with HDR display on, native Wayland is kept. `LIGHTCRAFT_WAYLAND=1` forces native
+/// Wayland, `=0` XWayland.
+#[cfg_attr(any(not(unix), target_os = "macos"), allow(dead_code))]
+fn use_xwayland(display: bool, wayland_env: Option<&str>, hdr_display: bool) -> bool {
+    display
+        && match wayland_env {
+            Some("0") => true,
+            Some(_) => false,
+            None => !hdr_display,
+        }
+}
+
 /// The window's renderer (egui-wgpu): eframe's defaults, with LightCraft's backend choice — DX12
 /// alone on Windows unless `LIGHTCRAFT_GPU_BACKEND` / `WGPU_BACKEND` say otherwise (issue #136:
 /// with Vulkan in the set, wgpu loads the Vulkan driver even when it then picks DX12) — and DX12
@@ -837,10 +851,9 @@ fn main() -> eframe::Result {
     #[cfg(all(unix, not(target_os = "macos")))]
     let mut options = options;
     // winit has no file drag-and-drop on Wayland (only on X11), so dropping files from the file
-    // manager showed a "no" cursor. Run through XWayland when it's there; LIGHTCRAFT_WAYLAND=1
-    // keeps the native Wayland backend.
+    // manager showed a "no" cursor; but X11 windows get no HDR surface. See `use_xwayland`.
     #[cfg(all(unix, not(target_os = "macos")))]
-    if std::env::var_os("DISPLAY").is_some() && std::env::var_os("LIGHTCRAFT_WAYLAND").is_none() {
+    if use_xwayland(std::env::var_os("DISPLAY").is_some(), std::env::var("LIGHTCRAFT_WAYLAND").ok().as_deref(), hdr_display) {
         options.event_loop_builder = Some(Box::new(|b| {
             use winit::platform::x11::EventLoopBuilderExtX11;
             b.with_x11();
@@ -954,6 +967,19 @@ fn startup_failed(error: &str, log_file: Option<&std::path::Path>) {
 #[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn hdr_display_keeps_native_wayland_unless_told_otherwise() {
+        // no X11 to fall back to: native Wayland whatever is asked
+        assert!(!use_xwayland(false, None, false));
+        assert!(!use_xwayland(false, Some("0"), true));
+        // HDR display on: native Wayland (only it gets an HDR surface); off: XWayland for drops
+        assert!(!use_xwayland(true, None, true));
+        assert!(use_xwayland(true, None, false));
+        // LIGHTCRAFT_WAYLAND forces either way
+        assert!(!use_xwayland(true, Some("1"), false));
+        assert!(use_xwayland(true, Some("0"), true));
+    }
 
     fn dir(tag: &str) -> std::path::PathBuf {
         let d = std::env::temp_dir().join(format!("lc-app-prefs-{tag}-{}", std::process::id()));

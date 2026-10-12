@@ -421,6 +421,15 @@ fn performance_tab(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens) {
         (false, false) => crate::i18n::tr("Applies after a restart."),
     };
     hint(ui, t, hdr_status);
+    if cfg!(target_os = "linux") {
+        hint(
+            ui,
+            t,
+            crate::i18n::tr(
+                "On Linux, HDR display needs a native Wayland window, which can't take files dragged in from the file manager. Turn it off (and restart) to drag files in.",
+            ),
+        );
+    }
     row(ui, t, crate::i18n::tr("Preview size"), |ui| {
         let opts: Vec<(u32, String)> =
             PREVIEW_LIMITS.iter().map(|e| (*e, if *e == 0 { crate::i18n::tr("Automatic").to_string() } else { format!("{e} px") })).collect();

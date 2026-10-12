@@ -22,6 +22,11 @@ egui draws its UI at SDR white on that surface, so the UI looks the same as on a
 egui crate from one git branch: egui 0.36.2 plus that commit. Whether to keep that patch or wait for
 the release is a maintainer decision.
 
+On Linux only native Wayland windows get an HDR surface (X11 windows, XWayland included, don't). So
+while HDR display is on, LightCraft keeps native Wayland, and file drag-and-drop from the file
+manager isn't available (winit has none on Wayland). With HDR display off it runs through XWayland
+for drag-and-drop. `LIGHTCRAFT_WAYLAND=1` / `0` forces one or the other.
+
 On KDE Plasma (Wayland), the surface is offered even with the system's HDR mode off: values above
 `1.0` are then clipped to SDR white. Switching the system's HDR mode while LightCraft runs takes
 effect live, with nothing to recreate.
