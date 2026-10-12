@@ -13,6 +13,7 @@ pub mod credits;
 pub mod date_picker;
 pub mod docking;
 pub mod export_task;
+pub mod hdr_view;
 pub mod headless;
 pub mod i18n;
 pub mod icons;
@@ -280,6 +281,9 @@ pub struct LightcraftApp {
     pub perf: Perf,
     /// macOS: the host draws the traffic lights over our top bar.
     pub integrated_titlebar: bool,
+    /// Set by the host when the window is HDR (and HDR display is on): HDR edits' loupe renders
+    /// carry their HDR rendition and are painted through it ([`hdr_view`]).
+    pub hdr_presenter: Option<Box<dyn hdr_view::HdrPresenter>>,
     /// The host installed a native menu bar (no in-window menus then).
     pub native_menu: bool,
     /// Shortcuts the native menu bar currently handles (`Cmd+Z`, `G`…): the egui shortcut handler
@@ -418,6 +422,7 @@ impl LightcraftApp {
             perf: Perf::default(),
             caches: Caches::default(),
             integrated_titlebar: false,
+            hdr_presenter: None,
             native_menu: false,
             native_shortcuts: Default::default(),
             recording_shortcut: None,

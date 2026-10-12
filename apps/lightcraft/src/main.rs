@@ -805,7 +805,15 @@ fn main() -> eframe::Result {
     // the window's renderer: probed (Windows) and with a fallback chain, so a driver that can't
     // build egui's pipeline never kills the start-up
     let win_files = std::sync::Arc::new(window_files(in_memory));
-    let window_gpu::Chosen { renderer, wgpu_options, which: window_renderer, notice: window_notice } = window_gpu::choose(&win_files);
+    let window_gpu::Chosen { renderer, mut wgpu_options, which: window_renderer, notice: window_notice } = window_gpu::choose(&win_files);
+    // HDR display: ask for an HDR (scRGB) surface (taken when offered; see lightcraft-hdr-display):
+    // the preference, unless LIGHTCRAFT_HDR_DISPLAY says 0 / 1
+    let hdr_display = match std::env::var("LIGHTCRAFT_HDR_DISPLAY").ok().as_deref() {
+        Some("0") => false,
+        Some("1") => true,
+        _ => prefs.as_ref().is_none_or(|u| u.settings.hdr_display),
+    };
+    wgpu_options.surface.prefer_hdr = hdr_display;
     win_files.arm(window_renderer);
     let win_files_app = win_files.clone();
     let options = eframe::NativeOptions {
@@ -858,6 +866,11 @@ fn main() -> eframe::Result {
                 }
                 lightcraft_ui_egui::i18n::set_language(app.ui.language);
                 app.integrated_titlebar = cfg!(target_os = "macos");
+                if hdr_display {
+                    let hdr = lightcraft_hdr_display::HdrDisplay::new(cc.wgpu_render_state.as_ref());
+                    log::info!("HDR display: {}", if hdr.is_some() { "on (scRGB window)" } else { "not offered by this window" });
+                    app.hdr_presenter = hdr.map(|h| Box::new(h) as Box<dyn lightcraft_ui_egui::hdr_view::HdrPresenter>);
+                }
                 app.notices.extend(prefs_warning);
                 app.notices.extend(launch_notices);
                 app.notices.extend(window_notice);
