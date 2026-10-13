@@ -199,7 +199,7 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
     divider(ui);
 
     section(app, ui, &d, "light", "Light", |app, ui, d| {
-        hdr_row(app, ui, d);
+        hdr_row(app, ui, d, id);
         for c in ["light.exposure", "light.contrast", "light.highlights", "light.shadows", "light.whites", "light.blacks"] {
             control(app, ui, d, c, true);
         }
@@ -1429,22 +1429,46 @@ fn point_color(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &DevelopSettings) 
 
 // ------------------------------------------------------------------------------ HDR
 
-/// The Light panel's HDR row: the HDR switch and Visualize HDR, then (HDR on) the headroom limit.
 /// The Light panel's HDR settings while HDR editing is on (the switch itself is the HDR button
-/// next to B&W): Visualize HDR range and the headroom limit.
-fn hdr_row(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &DevelopSettings) {
-    if !d.hdr.enabled {
+/// next to B&W): Visualize HDR range and the headroom limit. They slide open and shut with the
+/// histogram's change of layout ([`drawer`]); another photo shows its own at once.
+fn hdr_row(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &DevelopSettings, id: PhotoId) {
+    drawer(ui, egui::Id::new(("hdrSettings", id)), d.hdr.enabled, |ui| {
+        egui::Frame::NONE.inner_margin(egui::Margin { left: 24, right: 22, top: 4, bottom: 4 }).show(ui, |ui| {
+            let mut v = app.ui.hdr_visualize;
+            let r = ui.checkbox(&mut v, "Visualize HDR");
+            register(ui.ctx(), "check:hdrVisualize", r.rect);
+            if r.on_hover_text("Grey below SDR white; yellow, orange, red, magenta up to 1, 2, 3 and over 3 stops above it").changed() {
+                app.ui.hdr_visualize = v;
+            }
+        });
+        control(app, ui, d, "hdr.maxEv", true);
+    });
+}
+
+/// `body` as a drawer sliding open (`open`) or shut over [`HISTOGRAM_MORPH_SECS`], eased like the
+/// histogram: its height grows from 0 to its full height, the rows below move with its edge, and
+/// the content slides down from under the row above (clipped there: nothing past the edge is
+/// drawn or clickable). Fully shut, `body` doesn't run.
+fn drawer(ui: &mut egui::Ui, id: egui::Id, open: bool, body: impl FnOnce(&mut egui::Ui)) {
+    let t = egui::emath::easing::cubic_in_out(ui.ctx().animate_bool_with_time(id, open, HISTOGRAM_MORPH_SECS));
+    if t <= 0.0 {
         return;
     }
-    egui::Frame::NONE.inner_margin(egui::Margin { left: 24, right: 22, top: 4, bottom: 4 }).show(ui, |ui| {
-        let mut v = app.ui.hdr_visualize;
-        let r = ui.checkbox(&mut v, "Visualize HDR");
-        register(ui.ctx(), "check:hdrVisualize", r.rect);
-        if r.on_hover_text("Grey below SDR white; yellow, orange, red, magenta up to 1, 2, 3 and over 3 stops above it").changed() {
-            app.ui.hdr_visualize = v;
-        }
-    });
-    control(app, ui, d, "hdr.maxEv", true);
+    // the height measured last frame (0 before the first: that frame draws nothing and measures)
+    let full = ui.ctx().data(|d| d.get_temp::<f32>(id)).unwrap_or(0.0);
+    let avail = ui.available_rect_before_wrap();
+    let top = avail.top();
+    let mut child = ui.new_child(egui::UiBuilder::new().max_rect(avail.translate(vec2(0.0, -full * (1.0 - t)))).layout(*ui.layout()));
+    if t < 1.0 {
+        child.shrink_clip_rect(Rect::from_min_max(pos2(avail.left(), top), pos2(avail.right(), top + full * t)));
+    }
+    body(&mut child);
+    let measured = child.min_rect().height();
+    ui.ctx().data_mut(|d| d.insert_temp(id, measured));
+    ui.advance_cursor_after_rect(Rect::from_min_size(pos2(avail.left(), top), vec2(child.min_rect().width(), measured * t)));
+    // the spacing after it grows with it too, so nothing below jumps when it starts or ends
+    ui.add_space(-ui.spacing().item_spacing.y * (1.0 - t));
 }
 
 // ------------------------------------------------------------------------------ colour grading
@@ -1817,6 +1841,39 @@ mod tests {
         // HDR turned off: the SDR histogram at once; other photos keep their own
         assert_eq!(steady_hdr_histogram(&ctx, id, false, Some(sdr.clone())), Some(sdr.clone()));
         assert_eq!(steady_hdr_histogram(&ctx, PhotoId(8), true, Some(sdr.clone())), Some(sdr));
+    }
+
+    #[test]
+    fn the_hdr_settings_slide_open_and_shut() {
+        let ctx = egui::Context::default();
+        let id = egui::Id::new("drawer");
+        // the height the drawer takes in the layout at each frame, `dt` seconds apart
+        let frame = |time: f64, open: bool| {
+            let mut height = 0.0;
+            let input = egui::RawInput { time: Some(time), ..Default::default() };
+            let mut out = ctx.run_ui(input, |ui| {
+                let top = ui.cursor().top();
+                drawer(ui, id, open, |ui| {
+                    ui.allocate_exact_size(vec2(100.0, 40.0), Sense::hover());
+                });
+                height = ui.cursor().top() - top;
+            });
+            out.textures_delta.clear();
+            height
+        };
+        // shut from the start: nothing; opened: it grows a little each frame up to its height
+        assert_eq!(frame(0.0, false), 0.0);
+        let opening: Vec<f32> = (1..=15).map(|k| frame(k as f64 * 0.05, true)).collect();
+        assert!(opening.windows(2).all(|w| w[1] >= w[0]), "{opening:?}");
+        assert!(opening.iter().filter(|h| **h > 0.0 && **h < 40.0).count() >= 4, "{opening:?}");
+        assert!(opening[0] < 3.0, "no jump as it starts: {opening:?}");
+        let spaced = 40.0 + ctx.global_style().spacing.item_spacing.y;
+        assert_eq!(opening.last(), Some(&spaced));
+        // and shrinks back the same way
+        let closing: Vec<f32> = (16..=30).map(|k| frame(k as f64 * 0.05, false)).collect();
+        assert!(closing.windows(2).all(|w| w[1] <= w[0]), "{closing:?}");
+        assert!(closing.iter().filter(|h| **h > 0.0 && **h < 40.0).count() >= 4, "{closing:?}");
+        assert_eq!(closing.last(), Some(&0.0));
     }
 
     #[test]
