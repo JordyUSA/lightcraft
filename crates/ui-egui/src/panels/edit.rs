@@ -118,10 +118,12 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
                 let _ = app.run("develop.treatment", json!({}));
             }
             // HDR editing, next to B&W as Lightroom has it
-            if text_button(ui, "hdr", crate::i18n::tr("HDR"), d.hdr.enabled)
-                .on_hover_text(crate::i18n::tr("Edit in HDR: highlights above SDR white, for HDR exports and displays"))
-                .clicked()
-            {
+            let hdr_tip = if !d.hdr.enabled && crate::i18n::language() == crate::i18n::Locale::En {
+                "It's free real estate"
+            } else {
+                crate::i18n::tr("Edit in HDR: highlights above SDR white, for HDR exports and displays")
+            };
+            if text_button(ui, "hdr", crate::i18n::tr("HDR"), d.hdr.enabled).on_hover_text(hdr_tip).clicked() {
                 let _ = app.run("develop.hdr", json!({"enabled": !d.hdr.enabled}));
             }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -556,7 +558,7 @@ fn preview_histogram(app: &LightcraftApp, id: PhotoId) -> Option<lightcraft_rast
 /// the SDR layout and back while a slider moves. Every render with HDR bins replaces the one kept for the photo, so
 /// the histogram still follows the edit live; an SDR edit shows what it gets.
 fn steady_hdr_histogram(ctx: &egui::Context, id: PhotoId, hdr_edit: bool, hist: Option<Histogram>) -> Option<Histogram> {
-    let key = egui::Id::new(("hdrHistogram", id));
+    let key = hdr_histogram_key(id);
     match hist {
         Some(h) if h.hdr.is_some() => {
             ctx.data_mut(|d| d.insert_temp(key, h.clone()));
@@ -565,6 +567,81 @@ fn steady_hdr_histogram(ctx: &egui::Context, id: PhotoId, hdr_edit: bool, hist: 
         h if hdr_edit => ctx.data(|d| d.get_temp::<Histogram>(key)).or(h),
         h => h,
     }
+}
+
+fn hdr_histogram_key(id: PhotoId) -> egui::Id {
+    egui::Id::new(("hdrHistogram", id))
+}
+
+/// The photo's last SDR histogram, kept to draw the way back from the HDR layout and into it.
+fn sdr_histogram_key(id: PhotoId) -> egui::Id {
+    egui::Id::new(("sdrHistogram", id))
+}
+
+/// How long the histogram takes to flow between its SDR and HDR layouts.
+const HISTOGRAM_MORPH_SECS: f32 = 0.45;
+
+/// A histogram's display heights per bin for luma, R, G and B: smoothed over 5 bins, then
+/// square-root scaled against the R/G/B peak (the end bins left out) and capped at 1.
+fn histogram_heights(h: &Histogram) -> [Vec<f32>; 4] {
+    let smooth = |v: &[u32]| -> Vec<f32> {
+        (0..256)
+            .map(|i: usize| {
+                let (a, b) = (i.saturating_sub(2), (i + 3).min(v.len()));
+                let w = v.get(a..b).unwrap_or_default();
+                w.iter().map(|x| *x as f32).sum::<f32>() / w.len().max(1) as f32
+            })
+            .collect()
+    };
+    let [l, r, g, b] = [smooth(&h.luma), smooth(&h.r), smooth(&h.g), smooth(&h.b)];
+    let peak = [&r, &g, &b].iter().flat_map(|v| v.iter().skip(2).take(252)).fold(1.0f32, |a, b| a.max(*b));
+    [l, r, g, b].map(|v| v.into_iter().map(|x| (x / peak).sqrt().min(1.0)).collect())
+}
+
+/// `v` at fractional bin `x`, linearly interpolated (clamped to its ends).
+fn sample(v: &[f32], x: f32) -> f32 {
+    let x = x.clamp(0.0, v.len().saturating_sub(1) as f32);
+    let i = x.floor() as usize;
+    let (a, b) = (v.get(i).copied().unwrap_or(0.0), v.get(i + 1).or(v.get(i)).copied().unwrap_or(0.0));
+    a + (b - a) * (x - i as f32)
+}
+
+/// A greyscale image's histogram: its three channels coincide.
+fn is_greyscale(h: &Histogram) -> bool {
+    let spread: f32 = h.r.iter().zip(&h.g).zip(&h.b).map(|((r, g), b)| (*r as f32 - *g as f32).abs() + (*g as f32 - *b as f32).abs()).sum();
+    spread / (h.g.iter().map(|x| *x as f32).sum::<f32>().max(1.0)) < 0.02
+}
+
+/// The histogram curve `morph` of the way from the SDR layout (0) to the HDR one (1), as
+/// (x across the plot 0..1, heights for luma, R, G, B). SDR white sits at x
+/// `1 + (from / 255 - 1) * morph`: left of it, the SDR histogram's heights morph into the HDR
+/// histogram's SDR bins (`0..from`); right of it, the HDR bins fill what has opened. Either
+/// histogram may be missing: the other is drawn alone.
+fn morph_curve(sdr: Option<&[Vec<f32>; 4]>, hdr: Option<&[Vec<f32>; 4]>, from: f32, morph: f32) -> Vec<(f32, [f32; 4])> {
+    let x0 = 1.0 + (from / 255.0 - 1.0) * morph;
+    let mut pts: Vec<(f32, [f32; 4])> = (0..=255)
+        .map(|k| {
+            let u = k as f32 / 255.0;
+            let hs = std::array::from_fn(|j| match (sdr, hdr) {
+                (Some(s), Some(c)) => {
+                    let (a, z) = (sample(&s[j], u * 255.0), sample(&c[j], u * from));
+                    a + (z - a) * morph
+                }
+                (Some(s), None) => sample(&s[j], u * 255.0),
+                (None, Some(c)) => sample(&c[j], u * from),
+                (None, None) => 0.0,
+            });
+            (x0 * u, hs)
+        })
+        .collect();
+    if let Some(c) = hdr.filter(|_| morph > 0.0) {
+        let n = (255.0 - from).max(1.0) as usize;
+        pts.extend((1..=n).map(|k| {
+            let u = k as f32 / n as f32;
+            (x0 + (1.0 - x0) * u, std::array::from_fn(|j| sample(&c[j], from + u * (255.0 - from))))
+        }));
+    }
+    pts
 }
 
 fn histogram(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
@@ -587,20 +664,48 @@ fn histogram(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
     // rendered it)
     let hist = live.or_else(|| preview_histogram(app, id));
     let hist = steady_hdr_histogram(ui.ctx(), id, hdr_edit, hist);
+    // the SDR ⇄ HDR layout change flows instead of cutting: entering HDR squeezes the SDR curve
+    // into the HDR histogram's SDR section while the HDR section opens beside it (and the legend
+    // row slides open under the plot); leaving stretches it back. `morph` runs 0 (SDR) → 1 (HDR), and
+    // the last histogram of each kind is kept so both ends can be drawn on the way
+    let showing_hdr = hist.as_ref().is_some_and(|h| h.hdr.is_some());
+    if let Some(h) = hist.as_ref().filter(|h| h.hdr.is_none()) {
+        ui.ctx().data_mut(|d| d.insert_temp(sdr_histogram_key(id), h.clone()));
+    }
+    let morph = ui.ctx().animate_bool_with_time(egui::Id::new(("histogramHdrLayout", id)), showing_hdr, HISTOGRAM_MORPH_SECS);
+    let morph = egui::emath::easing::cubic_in_out(morph);
+    let hdr_hist = if showing_hdr {
+        hist.clone()
+    } else if morph > 0.0 {
+        ui.ctx().data(|d| d.get_temp::<Histogram>(hdr_histogram_key(id)))
+    } else {
+        None
+    };
+    let sdr_hist = if !showing_hdr {
+        hist.clone()
+    } else if morph < 1.0 {
+        ui.ctx().data(|d| d.get_temp::<Histogram>(sdr_histogram_key(id)))
+    } else {
+        None
+    };
+    let band = hdr_hist.as_ref().and_then(|h| h.hdr);
+    let morph = if band.is_some() { morph } else { 0.0 };
     // an HDR edit's histogram (`pipeline::hdr_histogram`) gets a colour bar and an SDR / HDR label
     // row under the plot
-    let hdr = hist.as_ref().and_then(|h| h.hdr);
-    let legend = if hdr.is_some() { 26.0 } else { 0.0 };
+    let legend = 26.0 * morph;
     let (r, resp) = ui.allocate_exact_size(vec2(w, 118.0 + legend), Sense::click());
     register(ui.ctx(), "histogram", r);
     let p = ui.painter();
     p.rect_filled(r, 0.0, t.button);
     let plot = Rect::from_min_max(r.min + vec2(0.0, 6.0), pos2(r.right(), r.bottom() - 26.0 - legend));
-    if let Some(b) = hdr {
+    // SDR white: the right edge in SDR, the HDR layout's split in HDR
+    let from = band.map_or(255.0, |b| b.from as f32);
+    let x0 = plot.left() + plot.width() * (1.0 + (from / 255.0 - 1.0) * morph);
+    if let Some(b) = band.filter(|_| morph > 0.0) {
         // white for SDR, then one band per stop above SDR white: white too, or (Visualize HDR
-        // range on) in its colours
-        let x0 = plot.left() + plot.width() * b.from as f32 / 255.0;
-        let bar = |a: f32, z: f32, c: Color32| p.rect_filled(Rect::from_min_max(pos2(a, plot.bottom() + 2.0), pos2(z, plot.bottom() + 7.0)), 0.0, c);
+        // range on) in its colours; the row is revealed as it opens
+        let lp = p.with_clip_rect(Rect::from_min_max(pos2(r.left(), plot.bottom()), pos2(r.right(), plot.bottom() + legend)));
+        let bar = |a: f32, z: f32, c: Color32| lp.rect_filled(Rect::from_min_max(pos2(a, plot.bottom() + 2.0), pos2(z, plot.bottom() + 7.0)), 0.0, c);
         let white = Color32::from_rgb(228, 228, 230);
         bar(plot.left(), x0 - 1.0, white);
         let stops = b.stops.round().max(1.0) as usize;
@@ -612,26 +717,17 @@ fn histogram(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
             bar(a + 1.0, z - 1.0, Color32::from_rgb(c[0], c[1], c[2]));
         }
         let y = plot.bottom() + 18.0;
-        p.text(pos2((plot.left() + x0) / 2.0, y), Align2::CENTER_CENTER, crate::i18n::tr("SDR"), t.font(12.5), t.text_label);
-        p.text(pos2((x0 + plot.right()) / 2.0, y), Align2::CENTER_CENTER, crate::i18n::tr("HDR"), t.font(12.5), t.text_label);
+        lp.text(pos2((plot.left() + x0) / 2.0, y), Align2::CENTER_CENTER, crate::i18n::tr("SDR"), t.font(12.5), t.text_label);
+        lp.text(pos2((x0 + plot.right()) / 2.0, y), Align2::CENTER_CENTER, crate::i18n::tr("HDR"), t.font(12.5), t.text_label);
         let info = Rect::from_center_size(pos2(plot.right() - 16.0, y), vec2(14.0, 14.0));
-        paint(p, info, Icon::Info, t.text_label);
+        paint(&lp, info, Icon::Info, t.text_label);
         ui.interact(info, egui::Id::new("hdrHistogramInfo"), Sense::hover()).on_hover_text(crate::i18n::tr(
             "Left: the standard (SDR) range up to SDR white. Right: the HDR range, one band per stop above SDR white (the orange line: the HDR headroom). With Visualize HDR range on, the bands take its colours.",
         ));
     }
     if let Some(h) = hist {
-        let smooth = |v: &[u32]| -> Vec<f32> {
-            (0..256)
-                .map(|i| {
-                    let (a, b) = (i.max(2) - 2, (i + 3).min(256));
-                    v[a..b].iter().map(|x| *x as f32).sum::<f32>() / (b - a) as f32
-                })
-                .collect()
-        };
-        // HDR: SDR on the left half, a solid line at SDR white and dashed ones between the stops
-        if let Some(b) = h.hdr {
-            let x0 = plot.left() + plot.width() * b.from as f32 / 255.0;
+        // HDR: SDR on the left, a solid line at SDR white and dashed ones between the stops
+        if let Some(b) = band.filter(|_| morph > 0.0) {
             let stops = b.stops.round().max(1.0) as usize;
             for k in 1..stops {
                 let x = x0 + (plot.right() - x0) * k as f32 / stops as f32;
@@ -650,14 +746,17 @@ fn histogram(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
                 p.line_segment([pos2(x, plot.top()), pos2(x, plot.bottom())], Stroke::new(1.0, Color32::from_rgb(230, 150, 60)));
             }
         }
-        let chans = [(smooth(&h.r), hex("#df3939")), (smooth(&h.g), hex("#44b072")), (smooth(&h.b), hex("#3b6fe0"))];
-        let peak = chans.iter().flat_map(|(v, _)| v.iter().skip(2).take(252)).fold(1.0f32, |a, b| a.max(*b));
-        let to = |i: usize, v: f32| pos2(plot.left() + plot.width() * i as f32 / 255.0, plot.bottom() - plot.height() * (v / peak).sqrt().min(1.0));
+        // one curve through both layouts: the SDR section's heights morph from the SDR
+        // histogram's to the HDR histogram's SDR bins as it narrows to `x0`; the HDR bins fill
+        // `x0..right`
+        let sdr_c = sdr_hist.as_ref().map(histogram_heights);
+        let hdr_c = hdr_hist.as_ref().filter(|_| band.is_some()).map(histogram_heights);
+        let pts = morph_curve(sdr_c.as_ref(), hdr_c.as_ref(), from, morph);
+        let to = |x: f32, v: f32| pos2(plot.left() + plot.width() * x, plot.bottom() - plot.height() * v);
         // luminance fill
-        let lum = smooth(&h.luma);
         let mut mesh = Mesh::default();
-        for i in 0..256 {
-            let top = to(i, lum[i]);
+        for (i, (x, hs)) in pts.iter().enumerate() {
+            let top = to(*x, hs[0]);
             mesh.vertices.push(Vertex { pos: top, uv: Pos2::ZERO, color: Color32::from_gray(120).gamma_multiply(0.35) });
             mesh.vertices.push(Vertex { pos: pos2(top.x, plot.bottom()), uv: Pos2::ZERO, color: Color32::from_gray(120).gamma_multiply(0.35) });
             if i > 0 {
@@ -667,15 +766,12 @@ fn histogram(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
         }
         p.add(mesh);
         // greyscale images: the three channels coincide — draw one neutral line
-        let spread: f32 = (0..256).map(|i| (chans[0].0[i] - chans[1].0[i]).abs() + (chans[1].0[i] - chans[2].0[i]).abs()).sum();
-        let total: f32 = chans[1].0.iter().sum::<f32>().max(1.0);
-        if spread / total < 0.02 {
-            let pts: Vec<Pos2> = (0..256).map(|i| to(i, chans[1].0[i])).collect();
-            p.add(egui::Shape::line(pts, Stroke::new(1.5, Color32::from_gray(200))));
+        let line = |j: usize, c: Color32| egui::Shape::line(pts.iter().map(|(x, hs)| to(*x, hs[j])).collect(), Stroke::new(1.5, c));
+        if is_greyscale(&h) {
+            p.add(line(2, Color32::from_gray(200)));
         } else {
-            for (v, c) in &chans {
-                let pts: Vec<Pos2> = (0..256).map(|i| to(i, v[i])).collect();
-                p.add(egui::Shape::line(pts, Stroke::new(1.5, *c)));
+            for (j, c) in [(1, hex("#df3939")), (2, hex("#44b072")), (3, hex("#3b6fe0"))] {
+                p.add(line(j, c));
             }
         }
         let (lo, hi) = h.clipping();
@@ -1721,5 +1817,36 @@ mod tests {
         // HDR turned off: the SDR histogram at once; other photos keep their own
         assert_eq!(steady_hdr_histogram(&ctx, id, false, Some(sdr.clone())), Some(sdr.clone()));
         assert_eq!(steady_hdr_histogram(&ctx, PhotoId(8), true, Some(sdr.clone())), Some(sdr));
+    }
+
+    #[test]
+    fn the_histogram_flows_between_its_sdr_and_hdr_layouts() {
+        let flat = |v: f32| -> [Vec<f32>; 4] { std::array::from_fn(|_| vec![v; 256]) };
+        let (sdr, hdr) = (flat(0.2), flat(0.6));
+        let from = 128.0;
+        let x_of = |pts: &[(f32, [f32; 4])]| pts.iter().map(|p| p.0).collect::<Vec<_>>();
+        // SDR: the SDR histogram across the whole plot, no HDR section
+        let pts = morph_curve(Some(&sdr), Some(&hdr), from, 0.0);
+        assert_eq!(pts.len(), 256);
+        assert!(pts.iter().all(|p| (p.1[0] - 0.2).abs() < 1e-6));
+        assert_eq!(pts.last().map(|p| p.0), Some(1.0));
+        // half way: the SDR section squeezed half way to SDR white, its heights half morphed,
+        // the HDR section opened beside it, joined without a gap
+        let pts = morph_curve(Some(&sdr), Some(&hdr), from, 0.5);
+        let x0 = 1.0 + (from / 255.0 - 1.0) * 0.5;
+        assert!((pts[255].0 - x0).abs() < 1e-6);
+        assert!((pts[100].1[2] - 0.4).abs() < 1e-6);
+        assert!((pts[256].1[2] - 0.6).abs() < 1e-6 && pts[256].0 > x0);
+        let xs = x_of(&pts);
+        assert!(xs.windows(2).all(|w| w[1] > w[0] && w[1] - w[0] < 0.02), "one continuous curve");
+        assert_eq!(xs.last(), Some(&1.0));
+        // HDR: the HDR histogram alone, SDR white at its bin
+        let pts = morph_curve(Some(&sdr), Some(&hdr), from, 1.0);
+        assert!((pts[255].0 - from / 255.0).abs() < 1e-6);
+        assert!(pts.iter().all(|p| (p.1[0] - 0.6).abs() < 1e-6));
+        // a missing end draws the other alone
+        assert!(morph_curve(None, Some(&hdr), from, 0.3).iter().all(|p| (p.1[1] - 0.6).abs() < 1e-6));
+        assert_eq!(morph_curve(Some(&sdr), None, from, 0.0).len(), 256);
+        assert_eq!((sample(&[0.0, 1.0], 0.25), sample(&[0.0, 1.0], 9.0), sample(&[], 1.0)), (0.25, 1.0, 0.0));
     }
 }
