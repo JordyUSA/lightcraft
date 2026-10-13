@@ -556,16 +556,21 @@ fn preview_histogram(app: &LightcraftApp, id: PhotoId) -> Option<lightcraft_rast
 /// An HDR edit's histogram stays an HDR histogram: some renders carry only their 8-bit image's
 /// (a drag's drafts, a cached thumbnail or stand-in), and showing those would swap the panel to
 /// the SDR layout and back while a slider moves. Every render with HDR bins replaces the one kept for the photo, so
-/// the histogram still follows the edit live; an SDR edit shows what it gets.
+/// the histogram still follows the edit live. An SDR edit likewise never shows an HDR histogram
+/// (one rendered before HDR was turned off, or a stale thumbnail's): it keeps its last SDR one.
 fn steady_hdr_histogram(ctx: &egui::Context, id: PhotoId, hdr_edit: bool, hist: Option<Histogram>) -> Option<Histogram> {
-    let key = hdr_histogram_key(id);
+    let (hdr_key, sdr_key) = (hdr_histogram_key(id), sdr_histogram_key(id));
     match hist {
         Some(h) if h.hdr.is_some() => {
-            ctx.data_mut(|d| d.insert_temp(key, h.clone()));
-            Some(h)
+            ctx.data_mut(|d| d.insert_temp(hdr_key, h.clone()));
+            if hdr_edit { Some(h) } else { ctx.data(|d| d.get_temp::<Histogram>(sdr_key)) }
         }
-        h if hdr_edit => ctx.data(|d| d.get_temp::<Histogram>(key)).or(h),
-        h => h,
+        Some(h) => {
+            ctx.data_mut(|d| d.insert_temp(sdr_key, h.clone()));
+            if hdr_edit { ctx.data(|d| d.get_temp::<Histogram>(hdr_key)).or(Some(h)) } else { Some(h) }
+        }
+        None if hdr_edit => ctx.data(|d| d.get_temp::<Histogram>(hdr_key)),
+        None => None,
     }
 }
 
@@ -659,7 +664,7 @@ fn histogram(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
             app.renderer.request(Slot::HdrHistogram, job, 95);
         }
     }
-    let live = app.renderer.live_hdr_histogram.as_ref().filter(|l| interacting && l.0 == id).map(|l| l.2.clone());
+    let live = app.renderer.live_hdr_histogram.as_ref().filter(|l| interacting && hdr_edit && l.0 == id).map(|l| l.2.clone());
     // else the loupe render of this photo, else its thumbnail (grid view before the loupe has
     // rendered it)
     let hist = live.or_else(|| preview_histogram(app, id));
@@ -669,9 +674,6 @@ fn histogram(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
     // row slides open under the plot); leaving stretches it back. `morph` runs 0 (SDR) → 1 (HDR), and
     // the last histogram of each kind is kept so both ends can be drawn on the way
     let showing_hdr = hist.as_ref().is_some_and(|h| h.hdr.is_some());
-    if let Some(h) = hist.as_ref().filter(|h| h.hdr.is_none()) {
-        ui.ctx().data_mut(|d| d.insert_temp(sdr_histogram_key(id), h.clone()));
-    }
     let morph = ui.ctx().animate_bool_with_time(egui::Id::new(("histogramHdrLayout", id)), showing_hdr, HISTOGRAM_MORPH_SECS);
     let morph = egui::emath::easing::cubic_in_out(morph);
     let hdr_hist = if showing_hdr {
@@ -725,7 +727,8 @@ fn histogram(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
             "Left: the standard (SDR) range up to SDR white. Right: the HDR range, one band per stop above SDR white (the orange line: the HDR headroom). With Visualize HDR range on, the bands take its colours.",
         ));
     }
-    if let Some(h) = hist {
+    // mid-way with no histogram of the new kind yet, the one being left is drawn alone
+    if let Some(h) = hist.or_else(|| if morph > 0.0 { hdr_hist.clone() } else { None }) {
         // HDR: SDR on the left, a solid line at SDR white and dashed ones between the stops
         if let Some(b) = band.filter(|_| morph > 0.0) {
             let stops = b.stops.round().max(1.0) as usize;
@@ -1840,6 +1843,10 @@ mod tests {
         assert_eq!(steady_hdr_histogram(&ctx, id, true, Some(sdr.clone())), Some(hdr(4.0)));
         // HDR turned off: the SDR histogram at once; other photos keep their own
         assert_eq!(steady_hdr_histogram(&ctx, id, false, Some(sdr.clone())), Some(sdr.clone()));
+        // an SDR edit never shows an HDR histogram (a slider drag's leftover live HDR render, a
+        // stale thumbnail's): its last SDR one instead, or none yet
+        assert_eq!(steady_hdr_histogram(&ctx, id, false, Some(hdr(4.0))), Some(sdr.clone()));
+        assert_eq!(steady_hdr_histogram(&ctx, PhotoId(9), false, Some(hdr(4.0))), None);
         assert_eq!(steady_hdr_histogram(&ctx, PhotoId(8), true, Some(sdr.clone())), Some(sdr));
     }
 
