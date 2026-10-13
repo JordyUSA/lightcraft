@@ -1461,7 +1461,10 @@ mod stage_budget_tests {
         let ctx = egui::Context::default();
         let mut r = Renderer::default();
         let tex = ctx.load_texture("window", egui::ColorImage::new([1, 1], vec![egui::Color32::BLACK]), Default::default());
-        r.textures.insert(Slot::Region, Tex { key: 1, photo: PhotoId(1), tex, size: [1, 1], histogram: None, ms: 0.0, quick: None, pixels: None });
+        r.textures.insert(
+            Slot::Region,
+            Tex { key: 1, photo: PhotoId(1), tex, size: [1, 1], histogram: None, ms: 0.0, quick: None, pixels: None, hdr: None },
+        );
         let long_ago = std::time::Instant::now().checked_sub(IDLE_TRIM * 2).unwrap();
         r.idle = Some((long_ago, false));
         r.trim_when_idle(&ctx);
