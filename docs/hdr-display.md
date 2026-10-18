@@ -18,6 +18,12 @@ wgpu 30 does the per-platform setup, so LightCraft has no platform code and no `
 
 egui draws its UI at SDR white on that surface, so the UI looks the same as on an 8-bit window.
 
+An scRGB surface has defined primaries (sRGB), and the system converts it for the panel. So while
+the window is HDR, previews and thumbnails are made in sRGB and the monitor profile (Settings ▸
+Display, or the screen's own profile) is set aside: applying it as well would convert twice, and
+SDR photos would no longer match their HDR rendition. The setting is kept and applies again on an
+SDR window; Settings ▸ Display says so.
+
 `prefer_hdr` is emilk/egui#8703. Until an egui release has it, the root `Cargo.toml` takes every
 egui crate from one git branch: egui 0.36.2 plus that commit. Whether to keep that patch or wait for
 the release is a maintainer decision.
@@ -48,7 +54,10 @@ the host's `hdr_view::HdrPresenter`. ui-egui stays renderer-agnostic, since the 
 The desktop app's presenter is `lightcraft-hdr-display::HdrDisplay`:
 
 - it uploads the values as an `Rgba16Float` texture, only when the render's key changes;
-- it draws them with an egui-wgpu paint callback over the image's rectangle;
+- it draws them with an egui-wgpu paint callback over the image's rectangle. egui-wgpu clamps the
+  callback's viewport to the window, so the shader takes texture coordinates from each fragment's
+  position in the image's whole rectangle: a zoomed photo that reaches past the window keeps its
+  pan;
 - when a display headroom is set (`HdrDisplay::set_headroom`, the highest value the display shows),
   it eases highlights above 80 % of it in towards it, keeping hue, instead of letting the panel clip.
 
@@ -63,6 +72,8 @@ on the CPU.
 - **`ui.inspect` → `hdrDisplay`:** `active` (the window is HDR) and `loupeHdr` (the loupe paints an
   HDR rendition).
 - Screenshots of an HDR window work: egui-wgpu reads the frame back as sRGB, with HDR clipped.
+  Headless screenshots (`ui.screenshot {"headless": true}`, and the fallback when no frame comes)
+  rasterize on the CPU, which has no paint callbacks, so they draw the loupe's SDR rendition.
 
 ## Status
 

@@ -640,6 +640,10 @@ fn display_tab(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens) {
     if let Some(e) = &app.display_error {
         ui.label(RichText::new(e).size(11.0).color(t.reject));
     }
+    if app.renderer.scrgb_window() {
+        let note = crate::i18n::tr("This window is HDR: the system manages its colour, so no monitor profile is applied.");
+        ui.label(RichText::new(note).size(11.0).color(t.text_dim));
+    }
     if let Some(d) = &current {
         let info = d.describe();
         if !screen {

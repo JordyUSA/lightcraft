@@ -696,8 +696,9 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
         };
         let image_rect = fit_texture_rect(r, tex.size);
         match (&app.hdr_presenter, &tex.hdr) {
-            // HDR display: an HDR edit's HDR rendition
-            (Some(hp), Some(px)) => hp.paint(&p.with_clip_rect(clip), image_rect, px),
+            // HDR display: an HDR edit's HDR rendition (a headless screenshot draws on the CPU,
+            // which has no HDR callbacks: the SDR rendition)
+            (Some(hp), Some(px)) if !app.offscreen => hp.paint(&p.with_clip_rect(clip), image_rect, px),
             _ => {
                 p.with_clip_rect(clip).image(tex.tex.id(), image_rect, Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)), Color32::WHITE);
             }

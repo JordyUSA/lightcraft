@@ -376,6 +376,9 @@ pub struct LightcraftApp {
     screenshot_token: u64,
     /// Offscreen context for headless screenshots of the windowed app.
     shadow: Option<headless::HeadlessView>,
+    /// Drawing into `shadow`: the CPU rasterizer drops paint callbacks, so the loupe paints its
+    /// SDR rendition even on an HDR window.
+    pub(crate) offscreen: bool,
     /// Synthetic input events (from the control channel) injected one step per frame.
     pub synthetic: Vec<egui::Event>,
     /// The text the UI last put on the clipboard (`ui.inspect` → `copied`).
@@ -502,6 +505,7 @@ impl LightcraftApp {
             recording_shortcut: None,
             text_focus: false,
             headless_host: false,
+            offscreen: false,
             notices: vec![],
             quit_prompt: None,
             quit_confirmed: false,
@@ -1005,7 +1009,9 @@ impl LightcraftApp {
         // same scroll offsets, open sections, style… as the window
         let memory = main.memory(|m| m.clone());
         view.ctx.memory_mut(|m| *m = memory);
+        self.offscreen = true;
         view.run(headless::HeadlessView::raw_input(size, ppp, time, vec![]), |ui| self.ui(ui));
+        self.offscreen = false;
         let img = capture.then(|| {
             let mut tex = self.renderer.cpu_textures();
             if let (Some((t, ..)), Some(px)) = (&self.merge.preview, &self.merge.preview_pixels) {
@@ -1263,6 +1269,8 @@ impl LightcraftApp {
             let _ = self.session.execute("app.memoryBudget", &serde_json::json!({"mb": mb}));
         }
         self.memory_applied = Some(mb);
+        // an HDR window (scRGB) is colour-managed by the system: no monitor profile on top
+        self.renderer.set_scrgb_window(self.hdr_presenter.is_some());
         // the monitor profile (Settings ▸ Display): previews follow it from the next frame
         if self.display_applied.as_ref() != Some(&self.ui.settings.display_profile) {
             let path = self.ui.settings.display_profile.clone();

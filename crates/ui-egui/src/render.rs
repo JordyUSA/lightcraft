@@ -242,6 +242,12 @@ pub struct Renderer {
     pub(crate) stage_budget_override: Option<usize>,
     /// The monitor profile textures are made for (`app.displayProfile`; `None`: sRGB).
     display: Option<Arc<lightcraft_engine::display::Display>>,
+    /// The monitor profile chosen (the setting or the screen's), kept while `scrgb_window`
+    /// sets it aside.
+    wanted_display: Option<Arc<lightcraft_engine::display::Display>>,
+    /// The window is HDR (scRGB): its pixels are sRGB primaries the system converts for the
+    /// panel, so textures are sRGB and no monitor profile applies (it would convert twice).
+    scrgb_window: bool,
     /// Since when nothing has been pending, and whether the GPU pool was trimmed since.
     #[cfg(not(target_arch = "wasm32"))]
     idle: Option<(std::time::Instant, bool)>,
@@ -303,6 +309,8 @@ impl Renderer {
             #[cfg(test)]
             stage_budget_override: None,
             display: None,
+            wanted_display: None,
+            scrgb_window: false,
             #[cfg(not(target_arch = "wasm32"))]
             idle: None,
         }
@@ -398,7 +406,28 @@ impl Renderer {
 
     /// Show previews through `display` from now on (`app.displayProfile`): when it changes, every
     /// texture is made again for the new one.
+    /// On an HDR (scRGB) window the profile is kept but not used ([`Self::set_scrgb_window`]).
     pub fn set_display(&mut self, display: Option<Arc<lightcraft_engine::display::Display>>) {
+        self.wanted_display = display;
+        self.apply_display();
+    }
+
+    /// The window is HDR (scRGB, sRGB primaries the system converts for the panel): textures are
+    /// made in sRGB and the monitor profile is set aside until it isn't.
+    pub fn set_scrgb_window(&mut self, on: bool) {
+        if self.scrgb_window != on {
+            self.scrgb_window = on;
+            self.apply_display();
+        }
+    }
+
+    /// Whether the window is HDR and the monitor profile is set aside.
+    pub fn scrgb_window(&self) -> bool {
+        self.scrgb_window
+    }
+
+    fn apply_display(&mut self) {
+        let display = if self.scrgb_window { None } else { self.wanted_display.clone() };
         if display.as_ref().map(|d| d.id()) != self.display_id() {
             self.forget_all();
         }
