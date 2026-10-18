@@ -778,6 +778,50 @@ fn assisted_culling_groups_bursts_and_scores_focus() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// Assisted culling: two look-alike shots one second apart across midnight form a burst at the end of
+/// every month, including those with fewer than 31 days.
+#[test]
+fn assisted_culling_groups_bursts_across_month_end() {
+    let dir = temp_dir("cull-month-end");
+    for (name, (w, h)) in [("a.png", (480, 320)), ("b.png", (482, 321))] {
+        let img = lightcraft_scenes::demo_library()[0].render(w, h);
+        let data: Vec<[u8; 4]> = img
+            .data
+            .iter()
+            .map(|c| {
+                let e = |v: f32| (lightcraft_color::transfer::linear_to_srgb(v.clamp(0.0, 1.0)) * 255.0).round() as u8;
+                [e(c[0]), e(c[1]), e(c[2]), 255]
+            })
+            .collect();
+        let png = lightcraft_codecs::encode_png(
+            &lightcraft_codecs::EncodeImage::rgba8(&lightcraft_raster::Rgba8 { width: img.width, height: img.height, data }),
+            &Default::default(),
+        )
+        .unwrap();
+        std::fs::write(dir.join(name), png).unwrap();
+    }
+    let mut s = Session::new().with_fs();
+    let r = s.execute("library.import", &json!({"paths": [dir.to_string_lossy()]})).unwrap();
+    let ids: Vec<u64> = r["imported"].as_array().unwrap().iter().filter_map(Value::as_u64).collect();
+    let by_name = |s: &Session, n: &str| s.catalog.photos().find(|p| p.file_name == n).unwrap().id;
+    let (a, b) = (by_name(&s, "a.png"), by_name(&s, "b.png"));
+    for (before, after) in [
+        ("2026-01-31T23:59:59", "2026-02-01T00:00:00"),
+        ("2026-02-28T23:59:59", "2026-03-01T00:00:00"),
+        ("2026-04-30T23:59:59", "2026-05-01T00:00:00"),
+        ("2026-06-30T23:59:59", "2026-07-01T00:00:00"),
+        ("2026-09-30T23:59:59", "2026-10-01T00:00:00"),
+        ("2026-11-30T23:59:59", "2026-12-01T00:00:00"),
+        ("2026-12-31T23:59:59", "2027-01-01T00:00:00"),
+    ] {
+        s.commit("t", lightcraft_catalog::Op::SetCaptured { id: a, captured: Some(before.into()) }).unwrap();
+        s.commit("t", lightcraft_catalog::Op::SetCaptured { id: b, captured: Some(after.into()) }).unwrap();
+        let r = s.execute("photo.analyze", &json!({"ids": ids})).unwrap();
+        assert_eq!(r["groups"], 1, "shots 1 s apart ({before} / {after}) must form a burst: {r}");
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// Find Dust Spots: soft dark spots on a smooth sky are found and healed (one undo step).
 #[test]
 fn dust_spots_are_found_and_healed() {
@@ -1679,4 +1723,72 @@ fn raw_sidecar_rating_and_crop_survive_naming_and_encoding_variants() {
         }
         let _ = std::fs::remove_dir_all(&src);
     }
+}
+
+/// Issue #1001: a Lightroom preset that names a profile applies it once the user has imported a
+/// profile of that name (before or after the preset), maps the basic Adobe profiles to ours, and
+/// reports the ones it can't use.
+#[test]
+fn presets_apply_the_imported_profile_they_name() {
+    let src = temp_dir("lookref");
+    let preset = |file: &str, name: &str, look: &str| {
+        let x = format!(
+            r#"<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+             <rdf:Description rdf:about="" xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/"
+               crs:PresetType="Normal" crs:Name="{name}" crs:UUID="{file}" crs:Exposure2012="0" crs:GrainAmount="20">
+              <crs:Look><rdf:Description crs:Name="{look}" crs:Amount="0.6" crs:UUID="1234ABCD">
+               <crs:Group><rdf:Alt><rdf:li xml:lang="x-default">Film Pack</rdf:li></rdf:Alt></crs:Group>
+              </rdf:Description></crs:Look>
+             </rdf:Description></rdf:RDF></x:xmpmeta>"#
+        );
+        std::fs::write(src.join(format!("{file}.xmp")), x).unwrap();
+    };
+    preset("a1", "Portra Soft", "Portra 400");
+    preset("a2", "Mono", "Adobe Monochrome");
+    preset("a3", "Artsy", "Artistic 01");
+    let mut s = Session::with_demo();
+    let r = s.execute("preset.import", &json!({"paths": [src.to_string_lossy()]})).unwrap();
+    let by_name = |r: &serde_json::Value, n: &str| r["imported"].as_array().unwrap().iter().find(|i| i["name"] == n).cloned().unwrap();
+    assert_eq!(by_name(&r, "Portra Soft")["unmapped"], json!(["Profile “Portra 400” (not imported yet)"]), "{r}");
+    assert_eq!(by_name(&r, "Mono")["profile"], json!({"name": "Adobe Monochrome", "id": "lc.mono"}));
+    assert_eq!(by_name(&r, "Artsy")["unmapped"], json!(["Profile “Artistic 01” (Lightroom's own)"]));
+    let photo = s.catalog.photos().next().unwrap().id;
+    s.execute("library.select", &json!({"ids": [photo.0]})).unwrap();
+    let pid = |s: &Session, n: &str| s.presets.iter().find(|p| p.name == n).unwrap().id.clone();
+    let apply = |s: &mut Session, n: &str| {
+        let id = pid(s, n);
+        s.execute("preset.apply", &json!({"id": id})).unwrap();
+        s.develop_of(photo).unwrap()
+    };
+    // not imported yet: only grain comes across, the photo keeps its profile
+    let d = apply(&mut s, "Portra Soft");
+    assert_eq!((d.profile.id.as_str(), d.grain.amount), ("lc.color", 20.0));
+    // the basic Adobe profiles are ours
+    assert_eq!(apply(&mut s, "Mono").profile.id, "lc.mono");
+    s.execute("develop.profile", &json!({"id": "lc.color", "amount": 100})).unwrap();
+    assert_eq!(apply(&mut s, "Artsy").profile.id, "lc.color", "Lightroom's own creative profiles aren't ours");
+    // importing the profile afterwards makes the preset use it, at the preset's amount
+    let mut cube = String::from("TITLE \"Portra 400\"\nLUT_3D_SIZE 2\n");
+    for b in 0..2 {
+        for g in 0..2 {
+            for r in 0..2 {
+                cube.push_str(&format!("{r} {g} {b}\n"));
+            }
+        }
+    }
+    std::fs::create_dir_all(src.join("profiles/Film Pack")).unwrap();
+    std::fs::write(src.join("profiles/Film Pack/portra.cube"), &cube).unwrap();
+    let r = s.execute("profile.import", &json!({"paths": [src.join("profiles").to_string_lossy()]})).unwrap();
+    let lut = r["imported"][0]["id"].as_str().unwrap().to_string();
+    let d = apply(&mut s, "Portra Soft");
+    assert_eq!((d.profile.id.as_str(), d.profile.amount, d.grain.amount), (lut.as_str(), 60.0, 20.0));
+    // a preset imported after the profile resolves straight away
+    preset("a4", "Portra Hard", "portra  400");
+    let r = s.execute("preset.import", &json!({"paths": [src.join("a4.xmp").to_string_lossy()]})).unwrap();
+    assert_eq!((r["imported"][0]["profile"]["id"].as_str(), r["imported"][0]["unmapped"].clone()), (Some(lut.as_str()), json!([])), "{r}");
+    // deleting the profile leaves the photo's own profile alone again
+    s.execute("profile.deleteImported", &json!({"id": lut})).unwrap();
+    s.execute("develop.profile", &json!({"id": "lc.vivid", "amount": 100})).unwrap();
+    assert_eq!(apply(&mut s, "Portra Soft").profile.id, "lc.vivid");
+    let _ = std::fs::remove_dir_all(&src);
 }
