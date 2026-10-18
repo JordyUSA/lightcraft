@@ -25,34 +25,33 @@ use lightcraft_ui_egui::hdr_view::{HdrPixels, HdrPresenter};
 const SHADER: &str = r"
 @group(0) @binding(0) var tex: texture_2d<f32>;
 @group(0) @binding(1) var samp: sampler;
-// x: the display's headroom (highest value it shows, SDR white = 1); 0 = unknown, no roll-off
-@group(0) @binding(2) var<uniform> params: vec4<f32>;
-
-struct VOut {
-    @builtin(position) pos: vec4<f32>,
-    @location(0) uv: vec2<f32>,
+struct Params {
+    // x: the display's headroom (highest value it shows, SDR white = 1); 0 = unknown, no roll-off
+    headroom: vec4<f32>,
+    // the image's whole rectangle in framebuffer pixels: left, top, width, height
+    rect: vec4<f32>,
 };
+@group(0) @binding(2) var<uniform> params: Params;
 
-// two triangles over the viewport (egui-wgpu sets it to the callback's rectangle)
+// two triangles over the viewport (egui-wgpu sets it to the callback's rectangle clamped to the
+// window, so a zoomed photo's viewport is not its rectangle: texture coordinates come from the
+// fragment's position in that rectangle instead)
 @vertex
-fn vs_main(@builtin(vertex_index) i: u32) -> VOut {
+fn vs_main(@builtin(vertex_index) i: u32) -> @builtin(position) vec4<f32> {
     var corners = array<vec2<f32>, 6>(
         vec2<f32>(-1.0, -1.0), vec2<f32>(1.0, -1.0), vec2<f32>(-1.0, 1.0),
         vec2<f32>(-1.0, 1.0), vec2<f32>(1.0, -1.0), vec2<f32>(1.0, 1.0),
     );
-    let xy = corners[i];
-    var out: VOut;
-    out.pos = vec4<f32>(xy, 0.0, 1.0);
-    out.uv = vec2<f32>((xy.x + 1.0) * 0.5, (1.0 - xy.y) * 0.5);
-    return out;
+    return vec4<f32>(corners[i], 0.0, 1.0);
 }
 
 // scRGB is linear sRGB with 1.0 at SDR white: the HDR values as they are, with the brightest
 // channel eased in towards the headroom from 80 % of it (hue kept) when the headroom is known
 @fragment
-fn fs_main(in: VOut) -> @location(0) vec4<f32> {
-    let c = max(textureSample(tex, samp, in.uv).rgb, vec3<f32>(0.0));
-    let h = params.x;
+fn fs_main(@builtin(position) pos: vec4<f32>) -> @location(0) vec4<f32> {
+    let uv = (pos.xy - params.rect.xy) / max(params.rect.zw, vec2<f32>(1e-6));
+    let c = max(textureSample(tex, samp, uv).rgb, vec3<f32>(0.0));
+    let h = params.headroom.x;
     let m = max(c.r, max(c.g, c.b));
     let knee = 0.8 * h;
     if (h > 1.0 && m > knee) {
@@ -76,6 +75,22 @@ pub fn roll_off(c: [f32; 3], headroom: f32) -> [f32; 3] {
     let room = headroom - knee;
     let mapped = knee + room * (1.0 - (-(m - knee) / room).exp());
     c.map(|v| v * mapped / m)
+}
+
+/// The shader's texture coordinate (for tests) at framebuffer pixel `px` (a fragment's position:
+/// pixel centres at +0.5) for an image whose whole rectangle is `rect` (left, top, width, height
+/// in pixels), however much of it the window clips.
+pub fn uv_at(px: [f32; 2], rect: [f32; 4]) -> [f32; 2] {
+    [(px[0] - rect[0]) / rect[2].max(1e-6), (px[1] - rect[1]) / rect[3].max(1e-6)]
+}
+
+/// The callback's uniform: the headroom, then the image's whole rectangle (`rect`, points) in
+/// framebuffer pixels at `pixels_per_point`, as the shader's `Params` (little-endian `f32`s).
+fn params_bytes(headroom: f32, rect: egui::Rect, pixels_per_point: f32) -> Vec<u8> {
+    let h = if headroom.is_finite() { headroom.max(0.0) } else { 0.0 };
+    let ppp = if pixels_per_point.is_finite() && pixels_per_point > 0.0 { pixels_per_point } else { 1.0 };
+    let r = [rect.min.x * ppp, rect.min.y * ppp, rect.width() * ppp, rect.height() * ppp];
+    [h, 0.0, 0.0, 0.0, r[0], r[1], r[2], r[3]].iter().flat_map(|v| v.to_le_bytes()).collect()
 }
 
 /// The pipeline and the current HDR texture, kept in egui-wgpu's callback resources.
@@ -138,7 +153,7 @@ impl Resources {
         });
         let params = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("hdr_display"),
-            size: 16,
+            size: 32,
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
@@ -234,6 +249,8 @@ fn f16_bits(v: f32) -> u16 {
 struct Callback {
     pixels: Arc<HdrPixels>,
     headroom: f32,
+    /// The image's whole rectangle (points; it may reach past the window).
+    rect: egui::Rect,
 }
 
 impl CallbackTrait for Callback {
@@ -241,15 +258,13 @@ impl CallbackTrait for Callback {
         &self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
-        _screen: &ScreenDescriptor,
+        screen: &ScreenDescriptor,
         _encoder: &mut wgpu::CommandEncoder,
         resources: &mut CallbackResources,
     ) -> Vec<wgpu::CommandBuffer> {
         if let Some(r) = resources.get_mut::<Resources>() {
             r.upload(device, queue, &self.pixels);
-            let h = if self.headroom.is_finite() { self.headroom.max(0.0) } else { 0.0 };
-            let params: Vec<u8> = [h, 0.0, 0.0, 0.0].iter().flat_map(|v| v.to_le_bytes()).collect();
-            queue.write_buffer(&r.params, 0, &params);
+            queue.write_buffer(&r.params, 0, &params_bytes(self.headroom, self.rect, screen.pixels_per_point));
         }
         Vec::new()
     }
@@ -303,13 +318,19 @@ impl HdrDisplay {
 impl HdrPresenter for HdrDisplay {
     fn paint(&self, painter: &egui::Painter, rect: egui::Rect, pixels: &Arc<HdrPixels>) {
         let headroom = self.headroom().unwrap_or(0.0);
-        painter.add(egui_wgpu::Callback::new_paint_callback(rect, Callback { pixels: pixels.clone(), headroom }));
+        painter.add(egui_wgpu::Callback::new_paint_callback(rect, Callback { pixels: pixels.clone(), headroom, rect }));
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_shader_is_valid_wgsl() {
+        let module = naga::front::wgsl::parse_str(SHADER).unwrap();
+        naga::valid::Validator::new(naga::valid::ValidationFlags::all(), naga::valid::Capabilities::empty()).validate(&module).unwrap();
+    }
 
     #[test]
     fn half_floats_round_trip_and_saturate() {
@@ -364,6 +385,34 @@ mod tests {
         }
         assert_eq!(roll_off([f32::NAN, f32::INFINITY, -1.0], 4.0), [0.0, 0.0, 0.0]);
         assert_eq!(roll_off([8.0; 3], f32::NAN), [8.0; 3]);
+    }
+
+    #[test]
+    fn texture_coordinates_follow_the_whole_image_when_the_window_clips_it() {
+        // a 4000 x 3000 photo at 50 % (2000 x 1500 px) in a 1400 x 1000 window, panned so its
+        // centre is at the window's centre (pan 0.5) and 10 % further right (pan 0.6): egui-wgpu
+        // clamps both viewports to the same 1400 x 1000, but the centre must sample u 0.5 and 0.6
+        let centre = [700.0, 500.0];
+        let at_half = [700.0 - 1000.0, 500.0 - 750.0, 2000.0, 1500.0];
+        let at_six_tenths = [700.0 - 1200.0, 500.0 - 750.0, 2000.0, 1500.0];
+        let close = |a: [f32; 2], b: [f32; 2]| (a[0] - b[0]).abs() < 1e-6 && (a[1] - b[1]).abs() < 1e-6;
+        assert!(close(uv_at(centre, at_half), [0.5, 0.5]));
+        assert!(close(uv_at(centre, at_six_tenths), [0.6, 0.5]));
+        // the window's corner is inside the photo, not its corner
+        assert!(close(uv_at([0.0, 0.0], at_half), [0.15, 1.0 / 6.0]));
+        // a degenerate rectangle stays finite
+        assert!(uv_at(centre, [0.0, 0.0, 0.0, 0.0]).iter().all(|v| v.is_finite()));
+    }
+
+    #[test]
+    fn params_carry_the_headroom_and_the_rectangle_in_pixels() {
+        let f = |b: &[u8], i: usize| f32::from_le_bytes([b[i * 4], b[i * 4 + 1], b[i * 4 + 2], b[i * 4 + 3]]);
+        let rect = egui::Rect::from_min_size(egui::pos2(-150.0, -125.0), egui::vec2(1000.0, 750.0));
+        let b = params_bytes(3.0, rect, 2.0);
+        assert_eq!(b.len(), 32);
+        assert_eq!((0..8).map(|i| f(&b, i)).collect::<Vec<_>>(), [3.0, 0.0, 0.0, 0.0, -300.0, -250.0, 2000.0, 1500.0]);
+        let b = params_bytes(f32::NAN, rect, f32::NAN);
+        assert_eq!([f(&b, 0), f(&b, 6)], [0.0, 1000.0]);
     }
 
     #[test]

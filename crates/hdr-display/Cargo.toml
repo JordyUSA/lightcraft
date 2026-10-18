@@ -16,3 +16,6 @@ egui = { workspace = true }
 # desktop only (the web build draws with glow): an empty crate on wasm32
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 egui-wgpu = { workspace = true }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+naga = { workspace = true }

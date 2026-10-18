@@ -3320,6 +3320,7 @@ dependencies = [
  "egui",
  "egui-wgpu",
  "lightcraft-ui-egui",
+ "naga",
 ]
 
 [[package]]
