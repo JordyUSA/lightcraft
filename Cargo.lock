@@ -1342,7 +1342,7 @@ dependencies = [
 [[package]]
 name = "ecolor"
 version = "0.36.2"
-source = "git+https://github.com/JordyUSA/egui?branch=egui-wgpu-hdr-surface-0.36.2#f130de7d8317a873d601af9c7d25a2f2e430644d"
+source = "git+https://github.com/JordyUSA/egui?rev=f130de7d8317a873d601af9c7d25a2f2e430644d#f130de7d8317a873d601af9c7d25a2f2e430644d"
 dependencies = [
  "bytemuck",
  "emath",
@@ -1375,7 +1375,7 @@ dependencies = [
 [[package]]
 name = "eframe"
 version = "0.36.2"
-source = "git+https://github.com/JordyUSA/egui?branch=egui-wgpu-hdr-surface-0.36.2#f130de7d8317a873d601af9c7d25a2f2e430644d"
+source = "git+https://github.com/JordyUSA/egui?rev=f130de7d8317a873d601af9c7d25a2f2e430644d#f130de7d8317a873d601af9c7d25a2f2e430644d"
 dependencies = [
  "ahash",
  "bytemuck",
@@ -1410,7 +1410,7 @@ dependencies = [
 [[package]]
 name = "egui"
 version = "0.36.2"
-source = "git+https://github.com/JordyUSA/egui?branch=egui-wgpu-hdr-surface-0.36.2#f130de7d8317a873d601af9c7d25a2f2e430644d"
+source = "git+https://github.com/JordyUSA/egui?rev=f130de7d8317a873d601af9c7d25a2f2e430644d#f130de7d8317a873d601af9c7d25a2f2e430644d"
 dependencies = [
  "accesskit",
  "ahash",
@@ -1429,7 +1429,7 @@ dependencies = [
 [[package]]
 name = "egui-wgpu"
 version = "0.36.2"
-source = "git+https://github.com/JordyUSA/egui?branch=egui-wgpu-hdr-surface-0.36.2#f130de7d8317a873d601af9c7d25a2f2e430644d"
+source = "git+https://github.com/JordyUSA/egui?rev=f130de7d8317a873d601af9c7d25a2f2e430644d#f130de7d8317a873d601af9c7d25a2f2e430644d"
 dependencies = [
  "ahash",
  "bytemuck",
@@ -1448,7 +1448,7 @@ dependencies = [
 [[package]]
 name = "egui-winit"
 version = "0.36.2"
-source = "git+https://github.com/JordyUSA/egui?branch=egui-wgpu-hdr-surface-0.36.2#f130de7d8317a873d601af9c7d25a2f2e430644d"
+source = "git+https://github.com/JordyUSA/egui?rev=f130de7d8317a873d601af9c7d25a2f2e430644d#f130de7d8317a873d601af9c7d25a2f2e430644d"
 dependencies = [
  "accesskit_winit",
  "arboard",
@@ -1468,7 +1468,7 @@ dependencies = [
 [[package]]
 name = "egui_glow"
 version = "0.36.2"
-source = "git+https://github.com/JordyUSA/egui?branch=egui-wgpu-hdr-surface-0.36.2#f130de7d8317a873d601af9c7d25a2f2e430644d"
+source = "git+https://github.com/JordyUSA/egui?rev=f130de7d8317a873d601af9c7d25a2f2e430644d#f130de7d8317a873d601af9c7d25a2f2e430644d"
 dependencies = [
  "bytemuck",
  "egui",
@@ -1481,7 +1481,7 @@ dependencies = [
 [[package]]
 name = "egui_kittest"
 version = "0.36.2"
-source = "git+https://github.com/JordyUSA/egui?branch=egui-wgpu-hdr-surface-0.36.2#f130de7d8317a873d601af9c7d25a2f2e430644d"
+source = "git+https://github.com/JordyUSA/egui?rev=f130de7d8317a873d601af9c7d25a2f2e430644d#f130de7d8317a873d601af9c7d25a2f2e430644d"
 dependencies = [
  "dify",
  "eframe",
@@ -1528,7 +1528,7 @@ dependencies = [
 [[package]]
 name = "emath"
 version = "0.36.2"
-source = "git+https://github.com/JordyUSA/egui?branch=egui-wgpu-hdr-surface-0.36.2#f130de7d8317a873d601af9c7d25a2f2e430644d"
+source = "git+https://github.com/JordyUSA/egui?rev=f130de7d8317a873d601af9c7d25a2f2e430644d#f130de7d8317a873d601af9c7d25a2f2e430644d"
 dependencies = [
  "bytemuck",
 ]
@@ -1575,7 +1575,7 @@ dependencies = [
 [[package]]
 name = "epaint"
 version = "0.36.2"
-source = "git+https://github.com/JordyUSA/egui?branch=egui-wgpu-hdr-surface-0.36.2#f130de7d8317a873d601af9c7d25a2f2e430644d"
+source = "git+https://github.com/JordyUSA/egui?rev=f130de7d8317a873d601af9c7d25a2f2e430644d#f130de7d8317a873d601af9c7d25a2f2e430644d"
 dependencies = [
  "ahash",
  "bytemuck",
@@ -1599,7 +1599,7 @@ dependencies = [
 [[package]]
 name = "epaint_default_fonts"
 version = "0.36.2"
-source = "git+https://github.com/JordyUSA/egui?branch=egui-wgpu-hdr-surface-0.36.2#f130de7d8317a873d601af9c7d25a2f2e430644d"
+source = "git+https://github.com/JordyUSA/egui?rev=f130de7d8317a873d601af9c7d25a2f2e430644d#f130de7d8317a873d601af9c7d25a2f2e430644d"
 
 [[package]]
 name = "equator"

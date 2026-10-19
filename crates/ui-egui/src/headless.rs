@@ -2925,6 +2925,9 @@ mod tests {
         assert!(h.step_until(SETTLE, |h| h.app.renderer.textures.values().any(|x| x.hdr.is_some())), "no HDR rendition arrived");
         h.step();
         assert!(paints.load(Ordering::SeqCst) > 0, "the window paints the HDR rendition");
+        // the HDR rendition the renderer keeps for the presenter counts in its memory figure
+        let mem = h.app.renderer.memory();
+        assert!(mem["textures"]["hdrBytes"].as_u64().is_some_and(|b| b > 0), "{mem}");
         let before = paints.load(Ordering::SeqCst);
         let main = h.view.ctx.clone();
         let shot = h.app.headless_screenshot(&main, true).unwrap();
@@ -2939,6 +2942,21 @@ mod tests {
             }
         }
         assert!(colours.len() > 50, "the photo is missing from the headless screenshot ({} colours)", colours.len());
+    }
+
+    /// HDR display is off until turned on on Linux and the BSDs (it means native Wayland, without
+    /// file drag-and-drop, before the window can tell whether the monitor is HDR), on elsewhere;
+    /// settings saved without the key get the same default (review on #1221).
+    #[test]
+    fn hdr_display_is_opt_in_on_linux() {
+        let linux_like = cfg!(all(unix, not(target_os = "macos")));
+        assert_eq!(crate::state::AppSettings::default().hdr_display, !linux_like);
+        let saved: crate::state::AppSettings = serde_json::from_value(json!({"gpu": true})).unwrap();
+        assert_eq!(saved.hdr_display, !linux_like);
+        #[cfg(target_os = "linux")]
+        const {
+            assert!(!crate::state::HDR_DISPLAY_DEFAULT)
+        };
     }
 
     /// An HDR window (scRGB) is colour-managed by the system: its pixels are sRGB primaries, so a

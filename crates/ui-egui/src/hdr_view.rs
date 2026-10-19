@@ -20,11 +20,17 @@ pub struct HdrPixels {
 
 impl HdrPixels {
     /// The pixels of `deep` if it holds float samples with consistent dimensions (an HDR display
-    /// job's HDR rendition; see `RenderJob::with_hdr_display`).
-    pub fn of(key: u64, deep: &lightcraft_pipeline::DeepImage) -> Option<HdrPixels> {
-        let lightcraft_pipeline::DeepSamples::F32(v) = &deep.samples else { return None };
+    /// job's HDR rendition; see `RenderJob::with_hdr_display`). Takes the samples over: a 4K
+    /// rendition is ~100 MB, not worth copying on the UI thread.
+    pub fn of(key: u64, deep: lightcraft_pipeline::DeepImage) -> Option<HdrPixels> {
+        let lightcraft_pipeline::DeepSamples::F32(rgb) = deep.samples else { return None };
         let n = deep.width.checked_mul(deep.height)?.checked_mul(3)?;
-        (deep.width > 0 && deep.height > 0 && v.len() >= n).then(|| HdrPixels { key, width: deep.width, height: deep.height, rgb: v.clone() })
+        (deep.width > 0 && deep.height > 0 && rgb.len() >= n).then_some(HdrPixels { key, width: deep.width, height: deep.height, rgb })
+    }
+
+    /// The bytes the pixels hold.
+    pub fn bytes(&self) -> usize {
+        self.rgb.len().saturating_mul(std::mem::size_of::<f32>())
     }
 }
 
@@ -42,12 +48,12 @@ mod tests {
     #[test]
     fn only_consistent_float_renders_become_hdr_pixels() {
         let deep = |w, h, n| DeepImage { width: w, height: h, space: OutputSpace::Srgb, samples: DeepSamples::F32(vec![2.0; n]) };
-        let p = HdrPixels::of(7, &deep(2, 2, 12)).unwrap();
-        assert_eq!((p.key, p.width, p.height, p.rgb.len()), (7, 2, 2, 12));
-        assert!(HdrPixels::of(7, &deep(2, 2, 5)).is_none(), "short buffers");
-        assert!(HdrPixels::of(7, &deep(0, 2, 0)).is_none(), "empty");
-        assert!(HdrPixels::of(7, &deep(usize::MAX, 3, 12)).is_none(), "overflowing sizes");
+        let p = HdrPixels::of(7, deep(2, 2, 12)).unwrap();
+        assert_eq!((p.key, p.width, p.height, p.rgb.len(), p.bytes()), (7, 2, 2, 12, 48));
+        assert!(HdrPixels::of(7, deep(2, 2, 5)).is_none(), "short buffers");
+        assert!(HdrPixels::of(7, deep(0, 2, 0)).is_none(), "empty");
+        assert!(HdrPixels::of(7, deep(usize::MAX, 3, 12)).is_none(), "overflowing sizes");
         let u16s = DeepImage { width: 1, height: 1, space: OutputSpace::Srgb, samples: DeepSamples::U16(vec![0; 3]) };
-        assert!(HdrPixels::of(7, &u16s).is_none(), "16-bit renders are not HDR");
+        assert!(HdrPixels::of(7, u16s).is_none(), "16-bit renders are not HDR");
     }
 }

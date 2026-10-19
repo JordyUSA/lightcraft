@@ -846,7 +846,7 @@ impl Renderer {
             if self.pending.get(&slot).is_some_and(|p| p.0 == r.key) {
                 self.pending.remove(&slot);
             }
-            let rendered = match r.rendered {
+            let mut rendered = match r.rendered {
                 Ok(x) => {
                     self.failed.remove(&slot);
                     x
@@ -884,7 +884,7 @@ impl Renderer {
             let img = &rendered.image;
             let color = color.unwrap_or_else(|| Arc::new(color_image(img)));
             let pixels = self.keep_pixels.then(|| color.clone());
-            let hdr = rendered.deep.as_ref().and_then(|d| crate::hdr_view::HdrPixels::of(r.key, d)).map(std::sync::Arc::new);
+            let hdr = rendered.deep.take().and_then(|d| crate::hdr_view::HdrPixels::of(r.key, d)).map(std::sync::Arc::new);
             let name = format!("{slot:?}");
             match self.textures.get_mut(&slot) {
                 Some(t) => {
@@ -975,9 +975,11 @@ impl Renderer {
         let gpu: usize = self.stages.values().map(|s| lightcraft_engine::gpu::stage_bytes(s)).sum();
         let tex: usize = self.textures.values().map(|t| t.size[0] * t.size[1] * 4).sum();
         let copies: usize = self.textures.values().filter_map(|t| t.pixels.as_ref()).map(|p| p.pixels.len() * 4).sum();
+        // HDR display: the HDR renditions kept for the presenter (float RGB)
+        let hdr: usize = self.textures.values().filter_map(|t| t.hdr.as_ref()).map(|p| p.bytes()).sum();
         serde_json::json!({
             "stageCaches": {"count": self.stages.len(), "cpuBytes": cpu, "gpuBytes": gpu, "budgetBytes": self.stage_budget(), "trimmed": self.stages_trimmed, "sharedSourceBytes": lightcraft_engine::gpu::shared_source_bytes()},
-            "textures": {"count": self.textures.len(), "bytes": tex, "cpuCopyBytes": copies},
+            "textures": {"count": self.textures.len(), "bytes": tex, "cpuCopyBytes": copies, "hdrBytes": hdr},
         })
     }
 

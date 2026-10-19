@@ -66,8 +66,11 @@ on the CPU.
 
 ## Settings and checks
 
-- **Settings ▸ Performance ▸ Show HDR photos in HDR on HDR displays** (on by default; applies after
-  a restart, since the surface is chosen when the window is created).
+- **Settings ▸ Performance ▸ Show HDR photos in HDR on HDR displays** (applies after a restart,
+  since the surface is chosen when the window is created). Off by default on Linux and the BSDs,
+  where it means native Wayland (no file drag-and-drop) and the window can't tell beforehand
+  whether the monitor is HDR: KDE offers the surface with the system's HDR mode off too, and the
+  monitor profile would then be set aside for nothing. On by default on macOS and Windows.
 - **`LIGHTCRAFT_HDR_DISPLAY=0` / `1`** overrides the setting.
 - **`ui.inspect` → `hdrDisplay`:** `active` (the window is HDR) and `loupeHdr` (the loupe paints an
   HDR rendition).

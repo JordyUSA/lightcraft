@@ -933,11 +933,11 @@ fn main() -> eframe::Result {
     let win_files = std::sync::Arc::new(window_files(in_memory));
     let window_gpu::Chosen { renderer, mut wgpu_options, which: window_renderer, notice: window_notice } = window_gpu::choose(&win_files);
     // HDR display: ask for an HDR (scRGB) surface (taken when offered; see lightcraft-hdr-display):
-    // the preference, unless LIGHTCRAFT_HDR_DISPLAY says 0 / 1
+    // the preference (off on Linux until turned on), unless LIGHTCRAFT_HDR_DISPLAY says 0 / 1
     let hdr_display = match std::env::var("LIGHTCRAFT_HDR_DISPLAY").ok().as_deref() {
         Some("0") => false,
         Some("1") => true,
-        _ => prefs.as_ref().is_none_or(|u| u.settings.hdr_display),
+        _ => prefs.as_ref().map_or(lightcraft_ui_egui::state::HDR_DISPLAY_DEFAULT, |u| u.settings.hdr_display),
     };
     wgpu_options.surface.prefer_hdr = hdr_display;
     win_files.arm(window_renderer);

@@ -171,16 +171,17 @@ miniz_oxide = { opt-level = 3 }
 
 # HDR display (crates/hdr-display, LR-VIEW-HDR-DISPLAY) needs egui-wgpu's `SurfaceConfig::prefer_hdr`
 # (emilk/egui#8703). Until a release has it, every egui crate comes from egui 0.36.2 plus that one
-# commit (all from the same branch, so the crates stay one egui). PENDING a maintainer decision:
+# commit (all pinned to one commit of the branch egui-wgpu-hdr-surface-0.36.2, so the crates stay
+# one egui and the lockfile cannot drift). PENDING a maintainer decision:
 # this git patch, or wait for the egui release.
 [patch.crates-io]
-ecolor = { git = "https://github.com/JordyUSA/egui", branch = "egui-wgpu-hdr-surface-0.36.2" }
-eframe = { git = "https://github.com/JordyUSA/egui", branch = "egui-wgpu-hdr-surface-0.36.2" }
-egui = { git = "https://github.com/JordyUSA/egui", branch = "egui-wgpu-hdr-surface-0.36.2" }
-egui-wgpu = { git = "https://github.com/JordyUSA/egui", branch = "egui-wgpu-hdr-surface-0.36.2" }
-egui-winit = { git = "https://github.com/JordyUSA/egui", branch = "egui-wgpu-hdr-surface-0.36.2" }
-egui_glow = { git = "https://github.com/JordyUSA/egui", branch = "egui-wgpu-hdr-surface-0.36.2" }
-egui_kittest = { git = "https://github.com/JordyUSA/egui", branch = "egui-wgpu-hdr-surface-0.36.2" }
-emath = { git = "https://github.com/JordyUSA/egui", branch = "egui-wgpu-hdr-surface-0.36.2" }
-epaint = { git = "https://github.com/JordyUSA/egui", branch = "egui-wgpu-hdr-surface-0.36.2" }
-epaint_default_fonts = { git = "https://github.com/JordyUSA/egui", branch = "egui-wgpu-hdr-surface-0.36.2" }
+ecolor = { git = "https://github.com/JordyUSA/egui", rev = "f130de7d8317a873d601af9c7d25a2f2e430644d" }
+eframe = { git = "https://github.com/JordyUSA/egui", rev = "f130de7d8317a873d601af9c7d25a2f2e430644d" }
+egui = { git = "https://github.com/JordyUSA/egui", rev = "f130de7d8317a873d601af9c7d25a2f2e430644d" }
+egui-wgpu = { git = "https://github.com/JordyUSA/egui", rev = "f130de7d8317a873d601af9c7d25a2f2e430644d" }
+egui-winit = { git = "https://github.com/JordyUSA/egui", rev = "f130de7d8317a873d601af9c7d25a2f2e430644d" }
+egui_glow = { git = "https://github.com/JordyUSA/egui", rev = "f130de7d8317a873d601af9c7d25a2f2e430644d" }
+egui_kittest = { git = "https://github.com/JordyUSA/egui", rev = "f130de7d8317a873d601af9c7d25a2f2e430644d" }
+emath = { git = "https://github.com/JordyUSA/egui", rev = "f130de7d8317a873d601af9c7d25a2f2e430644d" }
+epaint = { git = "https://github.com/JordyUSA/egui", rev = "f130de7d8317a873d601af9c7d25a2f2e430644d" }
+epaint_default_fonts = { git = "https://github.com/JordyUSA/egui", rev = "f130de7d8317a873d601af9c7d25a2f2e430644d" }

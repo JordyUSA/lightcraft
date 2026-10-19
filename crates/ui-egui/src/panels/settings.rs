@@ -437,12 +437,12 @@ fn performance_tab(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens) {
         (false, false) => crate::i18n::tr("Applies after a restart."),
     };
     hint(ui, t, hdr_status);
-    if cfg!(target_os = "linux") {
+    if !crate::state::HDR_DISPLAY_DEFAULT {
         hint(
             ui,
             t,
             crate::i18n::tr(
-                "On Linux, HDR display needs a native Wayland window, which can't take files dragged in from the file manager. Turn it off (and restart) to drag files in.",
+                "Off by default on Linux: HDR display needs a native Wayland window, which can't take files dragged in from the file manager.",
             ),
         );
     }
