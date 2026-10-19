@@ -1392,6 +1392,14 @@ fn hdr_display_jobs_add_the_hdr_rendition_for_hdr_edits_only() {
     let off = s.loupe_job(id, 160, 160, true).unwrap();
     let k = off.key;
     assert_eq!(off.with_hdr_display(false).key, k);
+    // a drag's draft: the SDR rendition only (the CPU HDR render would slow every draft 3–5×),
+    // whichever way round the job is built
+    for draft in [
+        s.loupe_job(id, 160, 160, true).unwrap().draft().with_hdr_display(true),
+        s.loupe_job(id, 160, 160, true).unwrap().with_hdr_display(true).draft(),
+    ] {
+        assert!(draft.run().rendered.unwrap().deep.is_none(), "drafts carry no HDR rendition");
+    }
 }
 
 /// Found by fuzzing catalog snapshots: an album filed under one id but naming its own folder's

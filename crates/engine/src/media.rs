@@ -814,7 +814,8 @@ impl RenderJob {
     /// ([`OutputDepth::F32Hdr`] in sRGB primaries: display-linear, SDR white = 1) into
     /// [`Rendered::deep`], next to the usual 8-bit SDR rendition. Gets its own result key and never
     /// comes from the rendered-thumbnail cache (which has no HDR). Left alone for SDR edits,
-    /// overlays, proofs, windows and high-bit-depth requests (those draw the 8-bit image).
+    /// overlays, proofs, windows and high-bit-depth requests (those draw the 8-bit image); a
+    /// [draft](Self::draft) renders no HDR rendition (a drag shows SDR until it ends).
     pub fn with_hdr_display(mut self, on: bool) -> Self {
         let wanted = on
             && self.settings.hdr.enabled
@@ -993,8 +994,10 @@ impl RenderJob {
                 let gpu = self.cache.is_none();
                 let (mut rendered, gpu_fallback) = develop_reporting(src, &info, &self.settings, &self.request, self.stages.as_deref(), gpu);
                 // HDR display: the HDR rendition too, for the window to show (CPU; the 8-bit SDR
-                // rendition stays the image overlays, previews and the histogram use)
-                if self.hdr_display {
+                // rendition stays the image overlays, previews and the histogram use). Not for a
+                // drag's drafts: on the CPU it would make each one 3–5× slower than the GPU's SDR
+                // draft, so a drag shows the SDR rendition and the full render brings HDR back
+                if self.hdr_display && self.request.quality != Quality::Draft {
                     let hreq = RenderRequest {
                         depth: OutputDepth::F32Hdr,
                         space: lightcraft_pipeline::OutputSpace::Srgb,
