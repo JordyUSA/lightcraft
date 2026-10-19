@@ -118,12 +118,10 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
                 let _ = app.run("develop.treatment", json!({}));
             }
             // HDR editing, next to B&W as Lightroom has it
-            let hdr_tip = if !d.hdr.enabled && crate::i18n::language() == crate::i18n::Locale::En {
-                "It's free real estate"
-            } else {
-                crate::i18n::tr("Edit in HDR: highlights above SDR white, for HDR exports and displays")
-            };
-            if text_button(ui, "hdr", crate::i18n::tr("HDR"), d.hdr.enabled).on_hover_text(hdr_tip).clicked() {
+            if text_button(ui, "hdr", crate::i18n::tr("HDR"), d.hdr.enabled)
+                .on_hover_text(crate::i18n::tr("Edit in HDR: highlights above SDR white, for HDR exports and displays"))
+                .clicked()
+            {
                 let _ = app.run("develop.hdr", json!({"enabled": !d.hdr.enabled}));
             }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
